@@ -124,6 +124,7 @@ extern "C" {
 // UART symbolic constants
 #define UART_0_TX_PIN       TX_PIN_NUMBER           // DWM1001 module pin 20, DEV board name RXD
 #define UART_0_RX_PIN       RX_PIN_NUMBER           // DWM1001 module pin 18, DEV board name TXD
+#define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED
 

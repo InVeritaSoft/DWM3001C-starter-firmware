@@ -1,2 +1,4 @@
 Output/
 uberi_qorvo-nrf52833-board.tar
+node_modules/
+.specstory/

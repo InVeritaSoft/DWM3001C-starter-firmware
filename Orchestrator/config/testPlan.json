@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "run_name": "baseline_test",
+      "jammer_label": "none",
+      "link_distance_m": 1.0,
+      "env_type": "indoor_los",
+      "config": {
+        "channel": 5,
+        "data_rate": "6m8",
+        "preamble_len": 128,
+        "payload_len": 64,
+        "tx_power_idx": 5,
+        "pkt_rate_hz": 100
+      }
+    }
+  ]
+}

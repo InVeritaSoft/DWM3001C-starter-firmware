@@ -90,7 +90,7 @@ int main(void)
     nrf_delay_ms(2);
 
     // UNCOMMENT EXACTLY ONE OF THE BELOW EXAMPLES, AND ALSO UNCOMMENT THE CORRESPONDING #define IN example_selection.h:
-    extern int read_dev_id(void); read_dev_id();
+    // extern int read_dev_id(void); read_dev_id();
     // extern int simple_tx(void); simple_tx();
     // extern int simple_tx_pdoa(void); simple_tx_pdoa();
     // extern int simple_rx(void); simple_rx();
@@ -143,6 +143,8 @@ int main(void)
     // extern int timer_example(void); timer_example();
     // extern int tx_power_adjustment_example(void); tx_power_adjustment_example();
     // extern int simple_aes(void); simple_aes();
+    // extern int orchestrator_tx(void); orchestrator_tx();
+    extern int orchestrator_rx(void); orchestrator_rx();
 
     while (1) {}
 }

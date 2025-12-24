@@ -1,0 +1,35 @@
+# UWB Test Orchestrator Configuration
+# Settings can be overridden via .env file (see scripts/load-env.js)
+
+serial:
+  # Serial port configuration for RS-485 communication
+  # On Windows: COM3, COM4, etc.
+  # On Linux: /dev/ttyUSB0, /dev/ttyUSB1, etc.
+  node_a_port: COM17
+  node_b_port: COM18
+  baudrate: 115200
+  timeout: 5 # seconds
+
+test:
+  # Test execution settings
+  poll_interval_seconds: 2 # How often to poll node stats during test
+  default_test_duration_seconds: 30 # Default test duration if not specified
+
+  # Default UWB configuration (can be overridden per test)
+  channel: 5
+  data_rate: 6m8 # Options: 850k, 6m8
+  preamble_len: 128
+  payload_len: 64
+  tx_power_idx: 5
+  pkt_rate_hz: 100
+
+web:
+  # Web server configuration
+  port: 5000
+  host: 0.0.0.0 # Listen on all interfaces
+
+swagger:
+  # Swagger/OpenAPI documentation
+  title: UWB Test Orchestrator API
+  version: 1.0.0
+  description: API for controlling UWB DWM3001C test rig
