@@ -25,7 +25,14 @@
     "verify-communication": "node scripts/verify-communication.js",
     "test-serial": "node scripts/test-serial-connection.js",
     "diagnose-baud": "node scripts/diagnose-baud-hex.js",
-    "diagnose-timeout": "node scripts/diagnose-timeout.js"
+    "diagnose-timeout": "node scripts/diagnose-timeout.js",
+    "check-rs485": "node scripts/check-rs485-hardware.js",
+    "diagnose-signal": "node scripts/diagnose-signal-reception.js",
+    "check-node-a": "node scripts/check-node-a-status.js",
+    "test-ping": "node scripts/test-ping-simple.js",
+    "start-uwb": "node scripts/start-uwb-node-a.js",
+    "check-uwb": "node scripts/check-uwb-status.js",
+    "test-leds": "node scripts/test-led-communication.js"
   },
   "keywords": [
     "uwb",

@@ -128,19 +128,22 @@ export class TestRunner extends EventEmitter {
   }
 
   /**
-   * Start both nodes
+   * Start both nodes simultaneously
    */
   async startNodes() {
     this.emit("starting");
 
     try {
-      // Start Node A
-      console.log("Starting Node A...");
-      await this.nodeA.startTest();
-
-      // Start Node B
-      console.log("Starting Node B...");
-      await this.nodeB.startTest();
+      // Start both nodes simultaneously for synchronized UWB communication
+      console.log("Starting both nodes simultaneously...");
+      await Promise.all([
+        this.nodeA.startTest().then(() => {
+          console.log("✓ Node A started");
+        }),
+        this.nodeB.startTest().then(() => {
+          console.log("✓ Node B started");
+        })
+      ]);
 
       this.emit("started");
     } catch (error) {
@@ -261,13 +264,16 @@ export class TestRunner extends EventEmitter {
     }
 
     try {
-      // Stop Node A
-      console.log("Stopping Node A...");
-      await this.nodeA.stopTest();
-
-      // Stop Node B
-      console.log("Stopping Node B...");
-      await this.nodeB.stopTest();
+      // Stop both nodes simultaneously
+      console.log("Stopping both nodes simultaneously...");
+      await Promise.all([
+        this.nodeA.stopTest().then(() => {
+          console.log("✓ Node A stopped");
+        }),
+        this.nodeB.stopTest().then(() => {
+          console.log("✓ Node B stopped");
+        })
+      ]);
 
       this.emit("stopped");
       this.emit("testStopped"); // Also emit testStopped for web server compatibility

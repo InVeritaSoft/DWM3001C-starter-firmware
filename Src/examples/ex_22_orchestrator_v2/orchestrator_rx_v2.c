@@ -472,6 +472,8 @@ static void parse_command(char *cmd)
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
         g_test_running = 0;
+        // Stop RX - force to IDLE state
+        dwt_forcetrxoff();
         send_response("OK STOP");
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0)
@@ -575,65 +577,72 @@ static void process_rx_packet(void)
             
             rx_packet = (uwb_test_packet_t *)g_rx_buffer;
             
-            // Update statistics
-            g_stats.total_rx++;
-            
-            // Check sequence number
-            if (!g_stats.seq_init)
+            // Only process packets when test is running (START command received)
+            if (g_test_running)
             {
-                g_stats.last_seq = rx_packet->seq;
-                g_stats.seq_init = 1;
+                g_stats.total_rx++;
+                
+                // Check sequence number
+                if (!g_stats.seq_init)
+                {
+                    g_stats.last_seq = rx_packet->seq;
+                    g_stats.seq_init = 1;
+                }
+                else
+                {
+                    uint32_t expected_seq = g_stats.last_seq + 1;
+                    if (rx_packet->seq != expected_seq)
+                    {
+                        if (rx_packet->seq > expected_seq)
+                        {
+                            g_stats.lost_pkts += (rx_packet->seq - expected_seq);
+                        }
+                    }
+                    g_stats.last_seq = rx_packet->seq;
+                }
+                
+                // Read RF diagnostics
+                dwt_rxdiag_t rx_diag;
+                dwt_readdiagnostics(&rx_diag);
+                
+                // Update RF metrics
+                update_rf_metrics(&rx_diag);
+                
+                // Re-enable RX to continue listening for packets
+                dwt_rxenable(DWT_START_RX_IMMEDIATE);
             }
             else
             {
-                uint32_t expected_seq = g_stats.last_seq + 1;
-                if (rx_packet->seq != expected_seq)
-                {
-                    if (rx_packet->seq > expected_seq)
-                    {
-                        g_stats.lost_pkts += (rx_packet->seq - expected_seq);
-                    }
-                }
-                g_stats.last_seq = rx_packet->seq;
+                // Test not running - clear status but don't re-enable RX
+                dwt_writesysstatuslo(DWT_INT_RXFCG_BIT_MASK);
             }
-            
-            // Read RF diagnostics
-            dwt_rxdiag_t rx_diag;
-            dwt_readdiagnostics(&rx_diag);
-            
-            // Update RF metrics
-            update_rf_metrics(&rx_diag);
-        }
-        
-        // Re-enable RX if test is running
-        if (g_test_running)
-        {
-            dwt_rxenable(DWT_START_RX_IMMEDIATE);
-        }
     }
     else
     {
-        // RX error - categorize error type
-        if (status_reg & DWT_INT_RXFCE_BIT_MASK)
+        // RX error - categorize error type (only track when test is running)
+        if (g_test_running)
         {
-            g_stats.crc_err++;
-        }
-        if (status_reg & DWT_INT_RXPHE_BIT_MASK)
-        {
-            g_stats.phy_err++;
-        }
-        if (status_reg & DWT_INT_RXFTO_BIT_MASK)
-        {
-            g_stats.rx_timeout++;
-        }
-        if (status_reg & DWT_INT_RXOVRR_BIT_MASK)
-        {
-            g_stats.rx_overrun++;
+            if (status_reg & DWT_INT_RXFCE_BIT_MASK)
+            {
+                g_stats.crc_err++;
+            }
+            if (status_reg & DWT_INT_RXPHE_BIT_MASK)
+            {
+                g_stats.phy_err++;
+            }
+            if (status_reg & DWT_INT_RXFTO_BIT_MASK)
+            {
+                g_stats.rx_timeout++;
+            }
+            if (status_reg & DWT_INT_RXOVRR_BIT_MASK)
+            {
+                g_stats.rx_overrun++;
+            }
         }
         
         dwt_writesysstatuslo(SYS_STATUS_ALL_RX_ERR);
         
-        // Re-enable RX if test is running
+        // Only re-enable RX if test is running (START command received)
         if (g_test_running)
         {
             dwt_rxenable(DWT_START_RX_IMMEDIATE);
@@ -760,8 +769,8 @@ int orchestrator_rx_v2(void)
     /* Configure with default settings */
     configure_uwb();
 
-    /* Enable RX initially */
-    dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    /* Start in IDLE state - RX will be enabled when START command is received */
+    dwt_forcetrxoff();
 
     /* Send message that we reached main loop */
     Sleep(100);
@@ -770,6 +779,7 @@ int orchestrator_rx_v2(void)
     /* Main loop - process UART commands and RX packets */
     while (1)
     {
+        // Only process RX packets when test is running (START command received)
         if (g_test_running)
         {
             process_rx_packet();

@@ -512,6 +512,8 @@ static void parse_command(char *cmd)
     {
         g_test_running = 0;
         app_timer_stop(m_tx_timer_id);
+        // Force DW3000 to IDLE state to stop transmission
+        dwt_forcetrxoff();
         send_response("OK STOP");
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0)
@@ -602,13 +604,15 @@ static void send_packet(void)
     dwt_writetxdata(data_len, g_tx_buffer, 0);
     dwt_writetxfctrl(frame_len, 0, 0);
 
+    // Ensure DW3000 is ready for transmission
+    dwt_forcetrxoff(); // Force to IDLE state if needed
+    
     // Start transmission
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
     // Wait for TX complete with timeout
-    waitforsysstatus(&status_reg, NULL, DWT_INT_TXFRS_BIT_MASK, 0);
-    
-    // Check timeout (simplified check)
+    // Poll status register until TXFRS bit is set or timeout occurs
+    status_reg = dwt_readsysstatuslo();
     while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < MAX_TIMEOUT)
     {
         status_reg = dwt_readsysstatuslo();
@@ -618,6 +622,7 @@ static void send_packet(void)
 
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
+        // Clear TX frame sent event
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK);
         g_stats.total_sent++;
         g_stats.last_tx_timestamp = dwt_readsystimestamphi32();
@@ -625,6 +630,7 @@ static void send_packet(void)
     }
     else
     {
+        // Timeout or error occurred
         if (timeout_count >= MAX_TIMEOUT)
         {
             g_stats.tx_timeouts++;
@@ -635,6 +641,8 @@ static void send_packet(void)
             g_stats.tx_errors++;
             g_stats.last_error = 1; // General TX error
         }
+        // Clear any pending status bits
+        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
     }
 }
 
@@ -774,11 +782,14 @@ int orchestrator_tx_v2(void)
         send_response("OK DW3000_READY");
     }
 
-    /* Enable LEDs */
+    /* Enable LEDs - DW3000 internal LEDs will blink on TX/RX events */
     dwt_setleds(DWT_LEDS_ENABLE | DWT_LEDS_INIT_BLINK);
 
     /* Configure with default settings */
     configure_uwb();
+    
+    /* Ensure DW3000 is in IDLE state before starting */
+    dwt_forcetrxoff(); // Force to IDLE state
 
     /* Send message that we reached main loop */
     Sleep(100);
