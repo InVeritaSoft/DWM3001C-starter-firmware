@@ -616,6 +616,7 @@ static void process_rx_packet(void)
                 // Test not running - clear status but don't re-enable RX
                 dwt_writesysstatuslo(DWT_INT_RXFCG_BIT_MASK);
             }
+        }
     }
     else
     {
