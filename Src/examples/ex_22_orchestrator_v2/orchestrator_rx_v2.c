@@ -673,6 +673,12 @@ int orchestrator_rx_v2(void)
     nrf_gpio_cfg_output(RS485_DE_RE_PIN);
     nrf_gpio_pin_write(RS485_DE_RE_PIN, 0);  // Start in RX mode (LOW)
     
+    /* CRITICAL: Reset UART pins to default state before initialization */
+    /* This removes any pull-up/pull-down resistors that might interfere */
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 19 (P0.19) - TX pin
+    nrf_delay_ms(10);  // Small delay to ensure pin state is stable
+    
     /* CRITICAL: Initialize UART FIRST, before anything else */
     uart_init();
     

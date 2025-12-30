@@ -587,6 +587,12 @@ int orchestrator_rx(void)
     nrf_delay_ms(100);
     bsp_board_led_off(0);
     
+    /* CRITICAL: Reset UART pins to default state before initialization */
+    /* This removes any pull-up/pull-down resistors that might interfere */
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 19 (P0.19) - TX pin
+    nrf_delay_ms(10);  // Small delay to ensure pin state is stable
+    
     /* CRITICAL: Initialize UART FIRST, before anything else */
     /* This ensures UART works even if other init fails */
     uart_init();
