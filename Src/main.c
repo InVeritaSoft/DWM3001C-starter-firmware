@@ -54,6 +54,7 @@ Purpose : DWM3001C build main entry point for simple exmaples.
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include "SEGGER/SEGGER_RTT.h"
 
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn test_run_info()
@@ -74,6 +75,10 @@ void test_run_info(unsigned char *data)
 
 int main(void)
 {
+    /* Initialize RTT early for debug output */
+    SEGGER_RTT_Init();
+    SEGGER_RTT_WriteString(0, "=== FIRMWARE STARTING ===\r\n");
+    
     /* Initialize all configured peripherals */
     bsp_board_init(BSP_INIT_LEDS | BSP_INIT_BUTTONS);
 
@@ -147,6 +152,8 @@ int main(void)
     // extern int orchestrator_rx(void); orchestrator_rx();
     // extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
     extern int orchestrator_rx_v2(void); orchestrator_rx_v2();
+    
+    // extern int simple_tx(void); simple_tx();
 
     while (1) {}
 }

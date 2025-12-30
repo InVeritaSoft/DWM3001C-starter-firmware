@@ -229,16 +229,59 @@ static void uart_init(void)
 {
     uint32_t err_code;
     uint32_t *p_err_code = &err_code;
+    
+    // #region agent log
+    char log_buf[128];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] uart_init entry: rx=%d tx=%d rts=%d cts=%d", 
+             UART_0_RX_PIN, UART_0_TX_PIN, RTS_PIN_NUMBER, CTS_PIN_NUMBER);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
+    
+    // #region agent log
+    uint32_t pin14_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
+    uint32_t pin15_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
+    uint32_t pin14_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
+    uint32_t pin15_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state BEFORE reset: p14_dir=%lu p15_dir=%lu p14_cnf=0x%08lX p15_cnf=0x%08lX",
+             (unsigned long)pin14_dir, (unsigned long)pin15_dir, (unsigned long)pin14_cnf, (unsigned long)pin15_cnf);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
+    
+    // CRITICAL: Reset UART pins to default state IMMEDIATELY before APP_UART_FIFO_INIT
+    // SDK may require pins to be unconfigured before UART takes control
+    nrf_gpio_cfg_default(UART_0_RX_PIN);
+    nrf_gpio_cfg_default(UART_0_TX_PIN);
+    nrf_delay_ms(1);  // Small delay to ensure pin state is stable
+    
+    // #region agent log
+    pin14_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
+    pin15_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
+    pin14_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
+    pin15_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state AFTER reset: p14_dir=%lu p15_dir=%lu p14_cnf=0x%08lX p15_cnf=0x%08lX",
+             (unsigned long)pin14_dir, (unsigned long)pin15_dir, (unsigned long)pin14_cnf, (unsigned long)pin15_cnf);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
+    
+    // SDK rejects RTS/CTS pins being the same as RX/TX pins (error 0x50000000)
+    // Use different unused GPIO pins for RTS/CTS (they won't be used since flow control is disabled)
+    // Using P0.4 and P0.5 (LED pins) - LEDs can still be controlled via BSP functions
     app_uart_comm_params_t comm_params =
     {
         .rx_pin_no = UART_0_RX_PIN,
         .tx_pin_no = UART_0_TX_PIN,
-        .rts_pin_no = DW3000_RTS_PIN_NUM,
-        .cts_pin_no = DW3000_CTS_PIN_NUM,
+        .rts_pin_no = 4,  // P0.4 (LED 1) - unused for flow control
+        .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
         .baud_rate = 30801920  // 115200 baud
     };
+
+    // #region agent log
+    snprintf(log_buf, sizeof(log_buf), "[DBG] comm_params: rts=0x%08lX cts=0x%08lX flow_ctrl=%d",
+             (unsigned long)comm_params.rts_pin_no, (unsigned long)comm_params.cts_pin_no, comm_params.flow_control);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
 
     APP_UART_FIFO_INIT(&comm_params,
                        UART_RX_BUFFER_SIZE,
@@ -247,9 +290,23 @@ static void uart_init(void)
                        APP_IRQ_PRIORITY_LOW,
                        p_err_code);
     
+    // #region agent log
+    snprintf(log_buf, sizeof(log_buf), "[DBG] APP_UART_FIFO_INIT result: err=0x%08lX", (unsigned long)err_code);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
+    
     if (err_code != NRF_SUCCESS)
     {
-        test_run_info((unsigned char *)"UART INIT FAILED");
+        char err_msg[64];
+        snprintf(err_msg, sizeof(err_msg), "UART INIT FAILED: 0x%08X", err_code);
+        test_run_info((unsigned char *)err_msg);
+        
+        // #region agent log
+        snprintf(log_buf, sizeof(log_buf), "[DBG] UART init failed: err=0x%08lX dec=%lu", 
+                 (unsigned long)err_code, (unsigned long)err_code);
+        test_run_info((unsigned char *)log_buf);
+        // #endregion
+        
         for (int i = 0; i < 20; i++) {
             bsp_board_led_on(0);
             nrf_delay_ms(50);
@@ -257,6 +314,14 @@ static void uart_init(void)
             nrf_delay_ms(50);
         }
         bsp_board_led_on(0);
+    }
+    else
+    {
+        test_run_info((unsigned char *)"UART INIT OK");
+        
+        // #region agent log
+        test_run_info((unsigned char *)"[DBG] UART init succeeded");
+        // #endregion
     }
 }
 
@@ -580,8 +645,6 @@ static void tx_timer_handler(void *p_context)
 static void send_packet(void)
 {
     uint32_t status_reg;
-    uint32_t timeout_count = 0;
-    const uint32_t MAX_TIMEOUT = 10000; // Max wait time in loop iterations
 
     g_stats.total_attempted++;
 
@@ -610,15 +673,9 @@ static void send_packet(void)
     // Start transmission
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
-    // Wait for TX complete with timeout
-    // Poll status register until TXFRS bit is set or timeout occurs
-    status_reg = dwt_readsysstatuslo();
-    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < MAX_TIMEOUT)
-    {
-        status_reg = dwt_readsysstatuslo();
-        timeout_count++;
-        Sleep(1);
-    }
+    // Wait for TX complete using proper polling function (like simple_tx example)
+    // This is more efficient than manual polling with Sleep(1)
+    waitforsysstatus(&status_reg, NULL, DWT_INT_TXFRS_BIT_MASK, 0);
 
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
@@ -630,13 +687,9 @@ static void send_packet(void)
     }
     else
     {
-        // Timeout or error occurred
-        if (timeout_count >= MAX_TIMEOUT)
-        {
-            g_stats.tx_timeouts++;
-            g_stats.last_error = 2; // Timeout error
-        }
-        else
+        // Error occurred (should not happen with waitforsysstatus, but handle it)
+        g_stats.tx_errors++;
+        g_stats.last_error = 1; // General TX error
         {
             g_stats.tx_errors++;
             g_stats.last_error = 1; // General TX error
@@ -679,13 +732,8 @@ int orchestrator_tx_v2(void)
     nrf_gpio_cfg_output(RS485_DE_RE_PIN);
     nrf_gpio_pin_write(RS485_DE_RE_PIN, 0);  // Start in RX mode (LOW)
     
-    /* CRITICAL: Reset UART pins to default state before initialization */
-    /* This removes any pull-up/pull-down resistors that might interfere */
-    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
-    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
-    nrf_delay_ms(10);  // Small delay to ensure pin state is stable
-    
     /* CRITICAL: Initialize UART FIRST, before anything else */
+    /* Pin reset is now done inside uart_init() immediately before APP_UART_FIFO_INIT */
     uart_init();
     
     /* NOTE: LED 3 (Blue/D12) uses P0.14 which is also UART TX pin.
