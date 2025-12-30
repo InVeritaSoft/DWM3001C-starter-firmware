@@ -13,27 +13,14 @@
 ### 2. Verify RS-485 Converter Wiring
 
 **Critical Connections:**
-- [ ] **RO (Receive Out)** from converter → **GPIO 19** on board (RX pin)
-- [ ] **DI (Data In)** to converter ← **GPIO 15** on board (TX pin)
+- [ ] **RO (Receive Out)** from converter → **GPIO 15** on board (RX pin)
+- [ ] **DI (Data In)** to converter ← **GPIO 14** on board (TX pin)
 - [ ] **GND** from converter → **GND** on board (Pin 6)
-- [ ] **DE/RE** from converter → **P0.06** on board (direction control)
 - [ ] Converter is powered (usually 5V or 3.3V)
 
 **Common Mistakes:**
-- ❌ RO connected to GPIO 15 (wrong - that's TX pin)
-- ❌ DI connected to GPIO 19 (wrong - that's RX pin)
-- ❌ DE/RE not connected (firmware won't switch direction)
-
-### 3. Check RS-485 Converter Type
-
-**Does your converter have:**
-- [ ] **Manual DE/RE control** (requires P0.06 connection) ← **You need this**
-- [ ] **Auto-direction switching** (may not work with firmware)
-
-**If your converter has auto-direction:**
-- The firmware expects manual control via P0.06
-- Auto-direction converters may not work correctly
-- Try connecting DE/RE to P0.06 anyway
+- ❌ RO connected to GPIO 14 (wrong - that's TX pin)
+- ❌ DI connected to GPIO 15 (wrong - that's RX pin)
 
 ### 4. Test Data Flow
 
@@ -59,7 +46,7 @@
 1. Send PING command
 2. Watch Green LED (LED 2) - should blink when response sent
 3. **If Green LED blinks**: Board is sending! Problem is response not reaching Pi5
-4. **If Green LED doesn't blink**: Board is NOT sending - check DE/RE pin
+4. **If Green LED doesn't blink**: Board is NOT sending - check wiring or firmware
 
 #### Step C: Test Direct Serial Connection
 1. Connect serial terminal directly to board USB port (bypass RS-485)
@@ -72,35 +59,31 @@
 
 #### Issue: Converter RX LED flashes but board doesn't respond
 **Possible causes:**
-1. **RO pin not connected to GPIO 19**
-   - Check: RO → GPIO 19 (not GPIO 15!)
+1. **RO pin not connected correctly**
+   - Check: RO → GPIO 15 (RX pin)
    - Use multimeter to verify continuity
 
-2. **DE/RE pin not connected**
-   - Check: DE/RE → P0.06
-   - Without this, converter stays in wrong direction
-
-3. **Converter not powered**
+2. **Converter not powered**
    - Check: Converter has power LED or measure voltage
    - Most converters need 5V or 3.3V
 
-4. **Wrong converter type**
-   - Some converters need different DE/RE logic
-   - Try inverting DE/RE (connect to GND instead of P0.06)
+3. **Wrong converter type**
+   - Some converters need auto-direction switching
+   - Check converter datasheet for requirements
 
 #### Issue: Board Orange LED blinks but no response
 **Possible causes:**
-1. **DE/RE pin not switching**
-   - Check: DE/RE connected to P0.06
-   - Firmware sets it HIGH before sending, LOW after
-
-2. **DI pin not connected**
-   - Check: DI ← GPIO 15
+1. **DI pin not connected**
+   - Check: DI ← GPIO 14 (TX pin)
    - Response goes out this pin
 
-3. **RS-485 bus termination**
+2. **RS-485 bus termination**
    - Check: 120Ω resistor between A+ and B- at each end
    - Without termination, signals may not reach Pi5
+
+3. **Converter direction switching**
+   - Some converters need auto-direction switching
+   - Check converter datasheet
 
 #### Issue: No LEDs blink at all
 **Possible causes:**
@@ -109,7 +92,7 @@
    - Rebuild and flash: `make build && make flash`
 
 2. **UART pins wrong**
-   - Check: GPIO 19 = RX, GPIO 15 = TX (after swap)
+   - Check: GPIO 15 = RX, GPIO 14 = TX
    - Verify in `custom_board.h`
 
 3. **Board not powered**
@@ -117,42 +100,30 @@
 
 ### 7. Advanced Diagnostics
 
-#### Test DE/RE Pin Manually
-1. Connect multimeter to P0.06
-2. Power on board
-3. Should read LOW (0V) - RX mode
-4. Send command that triggers response
-5. Should see pin go HIGH briefly during response
-6. **If pin doesn't change**: DE/RE not connected or firmware issue
-
 #### Test UART Pins Directly
 1. Use oscilloscope or logic analyzer
-2. GPIO 19 (RX): Should see data when Pi5 sends
-3. GPIO 15 (TX): Should see data when board responds
-4. **If no data on GPIO 19**: RO pin not connected or converter issue
-5. **If no data on GPIO 15**: Board not sending or DI pin not connected
+2. GPIO 15 (RX): Should see data when Pi5 sends
+3. GPIO 14 (TX): Should see data when board responds
+4. **If no data on GPIO 15**: RO pin not connected or converter issue
+5. **If no data on GPIO 14**: Board not sending or DI pin not connected
 
 ### 8. Quick Fixes to Try
 
 1. **Swap RO and DI connections** (if currently reversed)
-   - RO → GPIO 19
-   - DI ← GPIO 15
+   - RO → GPIO 15 (RX)
+   - DI ← GPIO 14 (TX)
 
-2. **Check DE/RE connection**
-   - Ensure DE/RE → P0.06
-   - If converter has separate DE and RE, connect both to P0.06
-
-3. **Try different converter**
+2. **Try different converter**
    - Some converters have different pinouts
    - Verify converter datasheet
 
-4. **Check baud rate**
+3. **Check baud rate**
    - Must be exactly 115200
    - Check converter and Pi5 settings
 
-5. **Add pull-up/pull-down resistors**
-   - Some converters need pull-up on DE/RE
-   - Try 10kΩ pull-up to 3.3V on DE/RE
+4. **Check converter auto-direction**
+   - Some converters automatically switch direction
+   - Verify converter datasheet for requirements
 
 ### 9. What to Report
 
@@ -161,6 +132,5 @@ If still not working, provide:
 2. Converter pinout diagram
 3. Which LEDs blink (if any)
 4. Results of direct serial test (USB port)
-5. Multimeter readings on P0.06 (DE/RE pin)
-6. Photos of wiring if possible
+5. Photos of wiring if possible
 

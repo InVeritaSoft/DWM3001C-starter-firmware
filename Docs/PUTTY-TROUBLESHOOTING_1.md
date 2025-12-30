@@ -107,7 +107,6 @@ This will:
   - A+ → RS-485 A+ line
   - B- → RS-485 B- line
   - GND → Ground
-  - DE/RE → GPIO P0.06 (RS485_DE_RE_PIN)
 - Check RS-485 termination resistors (120Ω at each end)
 
 ### Issue 4: Firmware Not Running

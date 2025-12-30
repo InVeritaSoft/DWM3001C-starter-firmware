@@ -327,7 +327,6 @@ static void uart_init(void)
 
 /**
  * Send response over UART (with timeout protection)
- * Includes RS-485 direction control for proper transceiver switching
  */
 static void send_response(const char *response)
 {
@@ -336,11 +335,6 @@ static void send_response(const char *response)
     
     // GREEN LED: TX - Response being sent
     bsp_board_led_on(2);
-    
-    // CRITICAL: Set RS-485 transceiver to TX mode (DE/RE HIGH)
-    // This enables the transceiver to drive the RS-485 bus
-    nrf_gpio_pin_write(RS485_DE_RE_PIN, 1);
-    nrf_delay_ms(1);  // Small delay to ensure transceiver switches to TX mode
     
     for (uint32_t i = 0; i < len; i++)
     {
@@ -368,12 +362,9 @@ static void send_response(const char *response)
     }
     
     // Wait for UART transmission to complete
-    nrf_delay_ms(2);  // Ensure all bytes are sent (115200 baud: ~1ms for 11 bytes)
-    
-    // CRITICAL: Set RS-485 transceiver back to RX mode (DE/RE LOW)
-    // This allows the transceiver to receive data from the RS-485 bus
-    nrf_gpio_pin_write(RS485_DE_RE_PIN, 0);
-    nrf_delay_ms(1);  // Small delay to ensure transceiver switches to RX mode
+    // At 115200 baud: ~87us per byte, so for "OK\r\n" (4 bytes) = ~348us
+    // Add extra margin to ensure all bytes are transmitted
+    nrf_delay_ms(5);  // Increased delay to ensure transmission completes (was 2ms)
     
     bsp_board_led_off(2);
 }
@@ -523,7 +514,9 @@ static void parse_command(char *cmd)
     // Handle commands
     if (strcmp(cmd_upper, "PNG") == 0 || strcmp(cmd_upper, "PING") == 0)
     {
+        // CRITICAL: Respond immediately to PING - this is used for connectivity checks
         send_response("OK");
+        return;  // Return immediately after sending response
     }
     else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
     {
@@ -725,12 +718,6 @@ int orchestrator_tx_v2(void)
     bsp_board_led_on(0);
     nrf_delay_ms(100);
     bsp_board_led_off(0);
-    
-    /* CRITICAL: Initialize RS-485 direction control pin FIRST */
-    // Configure GPIO pin for RS-485 transceiver direction control (DE/RE)
-    // LOW = RX mode (receive), HIGH = TX mode (transmit)
-    nrf_gpio_cfg_output(RS485_DE_RE_PIN);
-    nrf_gpio_pin_write(RS485_DE_RE_PIN, 0);  // Start in RX mode (LOW)
     
     /* CRITICAL: Initialize UART FIRST, before anything else */
     /* Pin reset is now done inside uart_init() immediately before APP_UART_FIFO_INIT */

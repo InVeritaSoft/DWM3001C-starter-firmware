@@ -38,7 +38,6 @@ GND ───────────────────────> GND �
                                                              GPIO 15 (RX) <─── RO (Receive Out - TTL output)
                                                              GPIO 14 (TX) ────> DI (Data In - TTL input)
                                                              (Pin 10 on J10)   (Pin 8 on J10)
-                                                             P0.06 ───────────> DE/RE (direction control)
 ```
 
 ## RS-485 to TTL Converter Pin Labels
@@ -46,16 +45,14 @@ GND ───────────────────────> GND �
 Most RS-485 to TTL converters have these labels:
 - **RO** (Receive Out) or **TXD** or **DO** = TTL output (sends data TO microcontroller) → Connect to board RX pin
 - **DI** (Data In) or **RXD** = TTL input (receives data FROM microcontroller) ← Connect from board TX pin
-- **DE/RE** = Direction control pin (if manual control)
 
 ## Connection Checklist
 
 1. ✅ **RS-485 converter RO (Receive Out)** → **GPIO 15 (P0.15)** on DWM3001CDK (RX pin - Pin 10 on J10)
 2. ✅ **RS-485 converter DI (Data In)** ← **GPIO 14 (P0.14)** on DWM3001CDK (TX pin - Pin 8 on J10)
 3. ✅ **RS-485 converter GND** → **GND** on DWM3001CDK (Pin 6)
-4. ✅ **RS-485 converter DE/RE** → **P0.06** on DWM3001CDK (for v2 firmware)
-5. ✅ **RS-485 bus A+** → Connected to other nodes
-6. ✅ **RS-485 bus B-** → Connected to other nodes
+4. ✅ **RS-485 bus A+** → Connected to other nodes
+5. ✅ **RS-485 bus B-** → Connected to other nodes
 
 ## Verification Steps
 
@@ -113,11 +110,9 @@ This removes any pull-up/pull-down resistors that might interfere with UART sign
 
 3. **Check RS-485 termination**: 120Ω resistors at each end of the bus
 
-4. **Check DE/RE pin** (v2 firmware): Must be connected to P0.06
+4. **Verify converter power**: RS-485 converter needs power (usually 5V or 3.3V)
 
-5. **Verify converter power**: RS-485 converter needs power (usually 5V or 3.3V)
-
-6. **Check converter direction**: Some converters have auto-direction switching, others need manual control
+5. **Check converter direction**: Some converters have auto-direction switching
 
 ## Summary
 

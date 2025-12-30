@@ -237,8 +237,6 @@ OK STATS rx=<total> lost=<count> crc_err=<count> phy_err=<count> timeout=<count>
 ### Implementation
 
 - ✅ **Baud Rate**: 115200 (standard)
-- ✅ **DE/RE Pin**: GPIO P0.06 (RS485_DE_RE_PIN)
-- ✅ **Direction Control**: Properly implemented (LOW=RX, HIGH=TX)
 - ✅ **Termination**: Documented (120Ω at each end)
 - ✅ **UART Pins**: GPIO 14 (TX), GPIO 15 (RX)
 

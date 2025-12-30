@@ -101,10 +101,6 @@ extern "C" {
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
 
-// RS-485 direction control pin (DE/RE)
-// Controls RS-485 transceiver direction: HIGH = TX mode, LOW = RX mode
-#define RS485_DE_RE_PIN    NRF_GPIO_PIN_MAP(0, 6)  // GPIO P0.06 for RS-485 direction control
-
 // Arduino board mappings
 #define ARDUINO_13_PIN              NRF_GPIO_PIN_MAP(0,  3)  // used as DW3000_CLK_Pin
 #define ARDUINO_12_PIN              NRF_GPIO_PIN_MAP(0, 29)  // used as DW3000_MISO_Pin
