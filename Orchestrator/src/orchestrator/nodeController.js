@@ -119,6 +119,14 @@ export class NodeController extends EventEmitter {
       return response.startsWith("OK");
     } catch (error) {
       this.lastError = error.message;
+      console.error(`⚠️  ${this.nodeId} PING failed - firmware may not be responding`);
+      console.error(`   Error: ${error.message.split('\n')[0]}`);
+      if (error.message.includes('timeout')) {
+        console.error(`   No response received. Check:`);
+        console.error(`   1. Firmware is running orchestrator example`);
+        console.error(`   2. RS-485 hardware connection`);
+        console.error(`   3. Serial port ${this.rs485Comm.port} is correct`);
+      }
       return false;
     }
   }
@@ -158,7 +166,7 @@ export class NodeController extends EventEmitter {
               nodeId: this.nodeId,
               response,
               responseLength: response?.length,
-              startsWithOK: response?.startsWith("OK NODE_TYPE="),
+              startsWithOK: response && response.startsWith("OK NODE_TYPE="),
             },
             timestamp: Date.now(),
             sessionId: "debug-session",
@@ -168,7 +176,7 @@ export class NodeController extends EventEmitter {
         }
       ).catch(() => {});
       // #endregion
-      if (response.startsWith("OK NODE_TYPE=")) {
+      if (response && response.startsWith("OK NODE_TYPE=")) {
         const type = response.split("=")[1];
         const trimmedType = type.trim();
         // #region agent log - getFirmwareNodeType success

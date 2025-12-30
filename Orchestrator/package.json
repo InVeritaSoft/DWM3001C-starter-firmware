@@ -22,7 +22,8 @@
     "verify-flash": "node scripts/verify-flash.js",
     "test-rs485-tx": "node scripts/test-rs485-tx.js",
     "test-uwb-commands": "node scripts/test-uwb-commands.js",
-    "verify-communication": "node scripts/verify-communication.js"
+    "verify-communication": "node scripts/verify-communication.js",
+    "test-serial": "node scripts/test-serial-connection.js"
   },
   "keywords": [
     "uwb",

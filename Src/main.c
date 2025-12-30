@@ -144,7 +144,9 @@ int main(void)
     // extern int tx_power_adjustment_example(void); tx_power_adjustment_example();
     // extern int simple_aes(void); simple_aes();
     // extern int orchestrator_tx(void); orchestrator_tx();
-    extern int orchestrator_rx(void); orchestrator_rx();
+    // extern int orchestrator_rx(void); orchestrator_rx();
+    // extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
+    extern int orchestrator_rx_v2(void); orchestrator_rx_v2();
 
     while (1) {}
 }

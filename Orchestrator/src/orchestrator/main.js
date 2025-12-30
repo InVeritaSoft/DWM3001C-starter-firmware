@@ -81,9 +81,19 @@ async function main() {
     if (!pingA || !pingB) {
       console.error('\nError: One or both nodes are not responding to PING');
       console.error('Please check:');
-      console.error('  1. Serial port connections');
-      console.error('  2. RS-485 wiring (A+, B-, GND)');
+      console.error('  1. Serial port connections (COM17 for Node A, COM18 for Node B)');
+      console.error('  2. RS-485 wiring (A+, B-, GND, termination resistors)');
       console.error('  3. Board power and firmware');
+      console.error('  4. LED behavior on boards:');
+      console.error('     - Orange LED should blink when command is received');
+      console.error('     - Green LED should blink when response is sent');
+      console.error('     - If no LEDs blink, firmware may not be running');
+      console.error('  5. Test serial connection:');
+      console.error('     - Node A: npm run test-serial COM17');
+      console.error('     - Node B: npm run test-serial COM18');
+      console.error('  6. Verify firmware is orchestrator v2:');
+      console.error('     - Node A: .\\build-and-flash-tx.ps1');
+      console.error('     - Node B: .\\build-and-flash-rx.ps1');
       process.exit(1);
     }
     console.log('');

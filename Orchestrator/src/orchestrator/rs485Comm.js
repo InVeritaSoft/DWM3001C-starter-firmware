@@ -341,7 +341,40 @@ export class RS485Comm extends EventEmitter {
         ).catch(() => {});
         // #endregion
         this.pendingCommands.delete(commandId);
-        reject(new Error(`Command timeout: ${command}`));
+        
+        // Provide helpful error message with troubleshooting steps
+        const errorMsg = `Command timeout: ${command}\n` +
+          `  Port: ${this.port}\n` +
+          `  Timeout: ${timeout}ms\n` +
+          `  No response received from firmware.\n` +
+          `\nTroubleshooting:\n` +
+          `  1. Check LED behavior on board:\n` +
+          `     - Orange LED should blink when command is received\n` +
+          `     - Green LED should blink when response is sent\n` +
+          `     - If no LEDs blink, firmware may not be receiving commands\n` +
+          `  2. Verify firmware is running orchestrator v2:\n` +
+          `     - Check LED behavior on startup (should blink)\n` +
+          `     - Rebuild and flash: .\\build-and-flash-tx.ps1 or .\\build-and-flash-rx.ps1\n` +
+          `  3. Check RS-485 hardware connection:\n` +
+          `     - Verify RS-485 transceiver is connected\n` +
+          `     - Check wiring (A+/B- lines, GND)\n` +
+          `     - Ensure proper termination resistors (120Ω at each end)\n` +
+          `     - Verify transceiver enable/DE pins are configured\n` +
+          `  4. Verify serial port:\n` +
+          `     - Port ${this.port} is correct\n` +
+          `     - Baud rate matches firmware (115200)\n` +
+          `     - No other software using the port\n` +
+          `  5. Test with diagnostic script:\n` +
+          `     - Run: npm run test-serial ${this.port}\n` +
+          `     - This will test PING and NODE_TYPE commands\n` +
+          `     - Watch LEDs and check for responses\n` +
+          `  6. Test with direct serial terminal:\n` +
+          `     - Open serial terminal (PuTTY, Tera Term, etc.)\n` +
+          `     - Configure: 115200 baud, 8N1, no flow control\n` +
+          `     - Send "PNG\\r\\n" and check for "OK\\r\\n" response\n` +
+          `     - Watch LEDs: orange on TX, green on RX`;
+        
+        reject(new Error(errorMsg));
       }, timeout);
 
       this.pendingCommands.set(commandId, { resolve, reject, timer, command });

@@ -1,11 +1,11 @@
-# Build and flash Node B (RX) in one command
+# Build and flash Node B (RX v2) in one command
 # Usage: .\build-and-flash-rx.ps1
 
-Write-Host "=== Building and Flashing Node B (RX) ===" -ForegroundColor Cyan
+Write-Host "=== Building and Flashing Node B (RX v2) ===" -ForegroundColor Cyan
 
-# Configure for RX
-Write-Host "`n[1/3] Configuring for RX..." -ForegroundColor Yellow
-& "$PSScriptRoot\set-node-rx.ps1"
+# Configure for RX v2
+Write-Host "`n[1/3] Configuring for RX v2..." -ForegroundColor Yellow
+& "$PSScriptRoot\set-node-rx-v2.ps1"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Failed to configure for RX" -ForegroundColor Red

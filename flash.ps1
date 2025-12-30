@@ -124,12 +124,38 @@ if ($isWSL) {
         $deviceList = @()
         $index = 1
         foreach ($device in $Devices) {
-            if ($device.Line -match "^\s*([0-9-]+).*?(COM\d+)") {
+            # Get the line text from Select-String object
+            $lineText = if ($device.Line) { $device.Line } else { $device.ToString() }
+            
+            # Try multiple regex patterns to extract Bus ID and COM port
+            $devBusId = $null
+            $devComPort = $null
+            
+            # Pattern 1: Bus ID and COM port on same line
+            if ($lineText -match "^\s*([0-9-]+).*?(COM\d+)") {
                 $devBusId = $matches[1]
                 $devComPort = $matches[2]
-                $state = if ($device.Line -match "Attached|Shared") { "✓ Attached" } else { "Not attached" }
+            }
+            # Pattern 2: Just Bus ID (COM port might be on another line or missing)
+            elseif ($lineText -match "^\s*([0-9-]+)") {
+                $devBusId = $matches[1]
+                # Try to find COM port in the same line
+                if ($lineText -match "(COM\d+)") {
+                    $devComPort = $matches[1]
+                } else {
+                    $devComPort = "N/A"
+                }
+            }
+            
+            if ($devBusId) {
+                $state = if ($lineText -match "Attached|Shared") { "✓ Attached" } else { "Not attached" }
                 Write-Host "  [$index] Bus ID: $devBusId  COM Port: $devComPort  State: $state" -ForegroundColor Cyan
-                $deviceList += @{ BusId = $devBusId; ComPort = $devComPort; Line = $device.Line }
+                # Create PSCustomObject for easier property access
+                $deviceList += [PSCustomObject]@{
+                    BusId = $devBusId
+                    ComPort = $devComPort
+                    Line = $lineText
+                }
                 $index++
             }
         }
@@ -159,19 +185,50 @@ if ($isWSL) {
         # NodeType specified - show menu to select
         if ($jlinkDevices.Count -gt 1) {
             $deviceList = Show-DeviceMenu -Devices $jlinkDevices -Prompt "Multiple J-Link devices found. Please select which $NodeType board to flash:"
+            
+            if ($deviceList.Count -eq 0) {
+                Write-Host "Error: No devices could be parsed from usbipd output!" -ForegroundColor Red
+                Write-Host "  Raw output:" -ForegroundColor Gray
+                $jlinkDevices | ForEach-Object { Write-Host "    $($_.Line)" -ForegroundColor Gray }
+                exit 1
+            }
+            
             $selection = Read-Host "Select device number (1-$($deviceList.Count)) or press Enter for first device"
             
             if ($selection -match "^\d+$" -and [int]$selection -ge 1 -and [int]$selection -le $deviceList.Count) {
                 $selectedDevice = $deviceList[[int]$selection - 1]
                 $targetBusId = $selectedDevice.BusId
-                $jlinkLine = $jlinkDevices | Where-Object { $_.Line -match "^\s*$targetBusId\s+" } | Select-Object -First 1
-                Write-Host "Selected: Bus ID $targetBusId (COM $($selectedDevice.ComPort))" -ForegroundColor Green
+                if (-not $targetBusId) {
+                    Write-Host "Error: Could not extract Bus ID from selected device!" -ForegroundColor Red
+                    Write-Host "  Device line: $($selectedDevice.Line)" -ForegroundColor Gray
+                    Write-Host "  Device object: $($selectedDevice | ConvertTo-Json)" -ForegroundColor Gray
+                    exit 1
+                }
+                # Find matching line in original jlinkDevices
+                $lineText = if ($selectedDevice.Line) { $selectedDevice.Line } else { "" }
+                $jlinkLine = $jlinkDevices | Where-Object { 
+                    $devLine = if ($_.Line) { $_.Line } else { $_.ToString() }
+                    $devLine -match "^\s*$targetBusId\s+" -or $devLine -match "$targetBusId"
+                } | Select-Object -First 1
+                $comPort = if ($selectedDevice.ComPort) { $selectedDevice.ComPort } else { "N/A" }
+                Write-Host "Selected: Bus ID $targetBusId (COM $comPort)" -ForegroundColor Green
             } else {
                 # Default to first device
-                if ($jlinkDevices.Count -gt 0 -and $jlinkDevices[0].Line -match "^\s*([0-9-]+)") {
-                    $targetBusId = $matches[1]
-                    $jlinkLine = $jlinkDevices[0]
+                if ($deviceList.Count -gt 0) {
+                    $selectedDevice = $deviceList[0]
+                    $targetBusId = $selectedDevice.BusId
+                    $jlinkLine = $jlinkDevices | Where-Object { 
+                        $devLine = if ($_.Line) { $_.Line } else { $_.ToString() }
+                        $devLine -match "$targetBusId"
+                    } | Select-Object -First 1
                     Write-Host "Using first device: Bus ID $targetBusId" -ForegroundColor Yellow
+                } elseif ($jlinkDevices.Count -gt 0) {
+                    $lineText = if ($jlinkDevices[0].Line) { $jlinkDevices[0].Line } else { $jlinkDevices[0].ToString() }
+                    if ($lineText -match "^\s*([0-9-]+)") {
+                        $targetBusId = $matches[1]
+                        $jlinkLine = $jlinkDevices[0]
+                        Write-Host "Using first device: Bus ID $targetBusId" -ForegroundColor Yellow
+                    }
                 }
             }
         } else {
@@ -191,11 +248,26 @@ if ($isWSL) {
             if ($selection -match "^\d+$" -and [int]$selection -ge 1 -and [int]$selection -le $deviceList.Count) {
                 $selectedDevice = $deviceList[[int]$selection - 1]
                 $targetBusId = $selectedDevice.BusId
+                if (-not $targetBusId) {
+                    Write-Host "Error: Could not extract Bus ID from selected device!" -ForegroundColor Red
+                    Write-Host "  Device line: $($selectedDevice.Line)" -ForegroundColor Gray
+                    exit 1
+                }
                 $jlinkLine = $jlinkDevices | Where-Object { $_.Line -match "^\s*$targetBusId\s+" } | Select-Object -First 1
-                Write-Host "Selected: Bus ID $targetBusId (COM $($selectedDevice.ComPort))" -ForegroundColor Green
+                if (-not $jlinkLine) {
+                    # Try without leading whitespace requirement
+                    $jlinkLine = $jlinkDevices | Where-Object { $_.Line -match "$targetBusId" } | Select-Object -First 1
+                }
+                $comPort = if ($selectedDevice.ComPort) { $selectedDevice.ComPort } else { "N/A" }
+                Write-Host "Selected: Bus ID $targetBusId (COM $comPort)" -ForegroundColor Green
             } else {
                 # Default to first device
-                if ($jlinkDevices.Count -gt 0 -and $jlinkDevices[0].Line -match "^\s*([0-9-]+)") {
+                if ($deviceList.Count -gt 0) {
+                    $selectedDevice = $deviceList[0]
+                    $targetBusId = $selectedDevice.BusId
+                    $jlinkLine = $jlinkDevices | Where-Object { $_.Line -match "$targetBusId" } | Select-Object -First 1
+                    Write-Host "Using first device: Bus ID $targetBusId" -ForegroundColor Yellow
+                } elseif ($jlinkDevices.Count -gt 0 -and $jlinkDevices[0].Line -match "^\s*([0-9-]+)") {
                     $targetBusId = $matches[1]
                     $jlinkLine = $jlinkDevices[0]
                     Write-Host "Using first device: Bus ID $targetBusId" -ForegroundColor Yellow

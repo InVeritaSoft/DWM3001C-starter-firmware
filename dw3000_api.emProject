@@ -226,6 +226,10 @@
           <file file_name="Src/examples/ex_21_orchestrator/orchestrator_tx.c" />
           <file file_name="Src/examples/ex_21_orchestrator/orchestrator_rx.c" />
         </folder>
+        <folder Name="ex_22_orchestrator_v2">
+          <file file_name="Src/examples/ex_22_orchestrator_v2/orchestrator_tx_v2.c" />
+          <file file_name="Src/examples/ex_22_orchestrator_v2/orchestrator_rx_v2.c" />
+        </folder>
       </folder>
       <folder Name="SDK">
         <folder Name="nRF_Libraries">
