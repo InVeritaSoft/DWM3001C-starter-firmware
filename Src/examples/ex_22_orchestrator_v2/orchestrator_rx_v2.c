@@ -656,7 +656,8 @@ int orchestrator_rx_v2(void)
     bsp_board_led_off(0);  // Red LED - Default/Error states
     bsp_board_led_off(1);  // Orange LED - RX (command received)
     bsp_board_led_off(2);  // Green LED - TX (response sent)
-    bsp_board_led_off(3);  // Blue LED - UART works + Stand By state
+    // LED 3 (Blue/D12) disabled - conflicts with UART TX pin (P0.14)
+    // bsp_board_led_off(3);  // DISABLED: Conflicts with UART TX pin
     
     /* Red LED: Default state - blink to show firmware started */
     bsp_board_led_on(0);
@@ -682,8 +683,11 @@ int orchestrator_rx_v2(void)
     /* CRITICAL: Initialize UART FIRST, before anything else */
     uart_init();
     
-    /* Blue LED: UART works */
-    bsp_board_led_on(3);
+    /* NOTE: LED 3 (Blue/D12) uses P0.14 which is also UART TX pin.
+     * Cannot use LED 3 as it conflicts with UART functionality.
+     * UART is working if commands/responses work, even without LED indicator.
+     */
+    // bsp_board_led_on(3);  // DISABLED: Conflicts with UART TX pin (P0.14)
     
     /* Wait for UART to be ready */
     Sleep(300);

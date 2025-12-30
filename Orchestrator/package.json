@@ -24,7 +24,8 @@
     "test-uwb-commands": "node scripts/test-uwb-commands.js",
     "verify-communication": "node scripts/verify-communication.js",
     "test-serial": "node scripts/test-serial-connection.js",
-    "diagnose-baud": "node scripts/diagnose-baud-hex.js"
+    "diagnose-baud": "node scripts/diagnose-baud-hex.js",
+    "diagnose-timeout": "node scripts/diagnose-timeout.js"
   },
   "keywords": [
     "uwb",
