@@ -8,21 +8,22 @@
 
 **Critical Wiring Error**: The RS-485 to TTL converter's output is connected to the wrong pin.
 
-### Correct Pin Mapping
+### Correct Pin Mapping (J10 Connector)
 
-The DWM3001CDK board uses:
-- **GPIO 15 (P0.15)** = **UART RX pin** (receives data FROM RS-485 converter)
-- **GPIO 19 (P0.19)** = **UART TX pin** (sends data TO RS-485 converter)
+The DWM3001CDK board uses J10 connector with UART pins:
+- **Pin 8 on J10** = **GPIO 14 (P0.14)** = **UART TX pin** (sends data TO RS-485 converter)
+- **Pin 10 on J10** = **GPIO 15 (P0.15)** = **UART RX pin** (receives data FROM RS-485 converter)
 
 ### Common Mistake
 
-Many users connect:
-- ❌ RS-485 converter TX output → GPIO 19 (WRONG! Pin 19 is TX, not RX)
+Many users connect to wrong pins:
+- ❌ RS-485 converter RO output → GPIO 14 (WRONG! GPIO 14 is TX, not RX)
+- ❌ Using pins that aren't routed to UART hardware
 
 ### Correct Connection
 
-- ✅ **RS-485 converter TX output** → **GPIO 15** (RX pin - receives data)
-- ✅ **RS-485 converter RX input** → **GPIO 19** (TX pin - sends data)
+- ✅ **RS-485 converter RO (Receive Out)** → **GPIO 15 (P0.15)** - RX pin (Pin 10 on J10)
+- ✅ **RS-485 converter DI (Data In)** ← **GPIO 14 (P0.14)** - TX pin (Pin 8 on J10)
 
 ## Correct Wiring Diagram
 
@@ -34,22 +35,23 @@ A+ (differential +) ────────> A+ ──────────�
 B- (differential -) ────────> B- ──────────────────────────> (RS-485 bus)
 GND ───────────────────────> GND ─────────────────────────> GND (Pin 6)
                                                              
-                                                             GPIO 15 (RX) <─── TX (TTL output)
-                                                             GPIO 19 (TX) ────> RX (TTL input)
+                                                             GPIO 15 (RX) <─── RO (Receive Out - TTL output)
+                                                             GPIO 14 (TX) ────> DI (Data In - TTL input)
+                                                             (Pin 10 on J10)   (Pin 8 on J10)
                                                              P0.06 ───────────> DE/RE (direction control)
 ```
 
 ## RS-485 to TTL Converter Pin Labels
 
 Most RS-485 to TTL converters have these labels:
-- **TX** or **TXD** or **DO** = TTL output (sends data TO microcontroller)
-- **RX** or **RXD** or **DI** = TTL input (receives data FROM microcontroller)
+- **RO** (Receive Out) or **TXD** or **DO** = TTL output (sends data TO microcontroller) → Connect to board RX pin
+- **DI** (Data In) or **RXD** = TTL input (receives data FROM microcontroller) ← Connect from board TX pin
 - **DE/RE** = Direction control pin (if manual control)
 
 ## Connection Checklist
 
-1. ✅ **RS-485 converter TX (output)** → **GPIO 15** on DWM3001CDK (RX pin)
-2. ✅ **RS-485 converter RX (input)** → **GPIO 19** on DWM3001CDK (TX pin)
+1. ✅ **RS-485 converter RO (Receive Out)** → **GPIO 15 (P0.15)** on DWM3001CDK (RX pin - Pin 10 on J10)
+2. ✅ **RS-485 converter DI (Data In)** ← **GPIO 14 (P0.14)** on DWM3001CDK (TX pin - Pin 8 on J10)
 3. ✅ **RS-485 converter GND** → **GND** on DWM3001CDK (Pin 6)
 4. ✅ **RS-485 converter DE/RE** → **P0.06** on DWM3001CDK (for v2 firmware)
 5. ✅ **RS-485 bus A+** → Connected to other nodes
@@ -91,8 +93,8 @@ The firmware has been updated to reset UART pins before initialization:
 
 ```c
 /* Reset UART pins to default state before initialization */
-nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin
-nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 19 (P0.19) - TX pin
+nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
+nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
 nrf_delay_ms(10);  // Small delay to ensure pin state is stable
 ```
 
@@ -103,8 +105,8 @@ This removes any pull-up/pull-down resistors that might interfere with UART sign
 ### Still Not Working?
 
 1. **Double-check wiring**:
-   - Converter TX → Board GPIO 15 (RX)
-   - Converter RX → Board GPIO 19 (TX)
+   - Converter RO (Receive Out) → Board GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
+   - Converter DI (Data In) ← Board GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
    - NOT the other way around!
 
 2. **Check baud rate**: Must be 115200
@@ -119,5 +121,5 @@ This removes any pull-up/pull-down resistors that might interfere with UART sign
 
 ## Summary
 
-**The key issue**: Pin 19 is TX (transmit), not RX (receive). Data from the RS-485 converter must go to **GPIO 15 (RX pin)**, not GPIO 19.
+**The key issue**: UART pins must match J10 connector routing. Pin 8 on J10 = GPIO 14 (TX), Pin 10 on J10 = GPIO 15 (RX). Data from the RS-485 converter RO pin must go to **GPIO 15 (RX pin - Pin 10 on J10)**, not GPIO 14.
 

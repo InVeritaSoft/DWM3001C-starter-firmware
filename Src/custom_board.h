@@ -95,8 +95,8 @@ extern "C" {
 
 #define BSP_BUTTON_0   BUTTON_1
 
-#define RX_PIN_NUMBER  19
-#define TX_PIN_NUMBER  15
+#define RX_PIN_NUMBER  15
+#define TX_PIN_NUMBER  14
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -126,9 +126,9 @@ extern "C" {
 #define DW3000_SPI_IRQ_PRIORITY APP_IRQ_PRIORITY_LOW
 
 // UART symbolic constants
-// NOTE: Pins swapped - GPIO 19 is now RX, GPIO 15 is now TX
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 15 - TX pin (sends data)
-#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 19 - RX pin (receives data)
+// UART pins match J10 connector routing: Pin 8 = TX (GPIO14), Pin 10 = RX (GPIO15)
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
+#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED

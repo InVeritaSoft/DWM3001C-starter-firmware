@@ -25,8 +25,8 @@ This is an enhanced version of the orchestrator example with significant improve
 ## Pin Configuration
 
 ### UART Pins (RS-485 Communication)
-- **RX Pin**: GPIO 15 (UART_0_RX_PIN) - Receives commands from RS-485
-- **TX Pin**: GPIO 19 (UART_0_TX_PIN) - Sends responses via RS-485
+- **RX Pin**: GPIO 15 (P0.15) - Receives commands from RS-485 (Pin 10 on J10)
+- **TX Pin**: GPIO 14 (P0.14) - Sends responses via RS-485 (Pin 8 on J10)
 - **RS-485 DE/RE Pin**: GPIO P0.06 (RS485_DE_RE_PIN) - **CRITICAL for direction control**
   - **LOW (0)**: RX mode - Receives data from RS-485 bus
   - **HIGH (1)**: TX mode - Drives data onto RS-485 bus
@@ -36,7 +36,7 @@ This is an enhanced version of the orchestrator example with significant improve
 - **Pin 8**: DW3000_IRQ_Pin (interrupt pin for UWB chip)
 - **Pin 10**: DW3000_CS_Pin (SPI chip select for UWB chip)
 
-The UART for RS-485 communication uses **pins 15 (RX) and 19 (TX)**, not pins 8 and 10.
+The UART for RS-485 communication uses **GPIO 15 (RX) and GPIO 14 (TX)**, which correspond to **Pin 10 and Pin 8 on J10 connector**.
 
 **IMPORTANT**: The RS-485 transceiver's DE/RE pin **MUST** be connected to **GPIO P0.06** for proper bidirectional communication!
 
@@ -218,8 +218,8 @@ Connect the RS-485 transceiver to:
 - **A+**: Connect to RS-485 A+ line (differential positive)
 - **B-**: Connect to RS-485 B- line (differential negative)
 - **GND**: Connect to ground
-- **DI (Data In)**: Connect to GPIO 19 (UART TX)
-- **RO (Receive Out)**: Connect to GPIO 15 (UART RX)
+- **DI (Data In)**: Connect to GPIO 14 (P0.14) - UART TX (Pin 8 on J10)
+- **RO (Receive Out)**: Connect to GPIO 15 (P0.15) - UART RX (Pin 10 on J10)
 - **DE/RE (Direction Enable)**: Connect to **GPIO P0.06** (RS485_DE_RE_PIN)
   - If your transceiver has separate DE and RE pins, connect both to P0.06
 

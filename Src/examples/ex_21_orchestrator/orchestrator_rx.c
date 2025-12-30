@@ -589,8 +589,8 @@ int orchestrator_rx(void)
     
     /* CRITICAL: Reset UART pins to default state before initialization */
     /* This removes any pull-up/pull-down resistors that might interfere */
-    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 19 (P0.19) - RX pin
-    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 15 (P0.15) - TX pin
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
     nrf_delay_ms(10);  // Small delay to ensure pin state is stable
     
     /* CRITICAL: Initialize UART FIRST, before anything else */

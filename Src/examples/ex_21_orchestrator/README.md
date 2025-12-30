@@ -11,15 +11,15 @@ Both variants communicate with the Orchestrator via RS-485 using UART.
 ## Pin Configuration
 
 ### UART Pins (RS-485 Communication)
-- **RX Pin**: GPIO 15 (UART_0_RX_PIN)
-- **TX Pin**: GPIO 19 (UART_0_TX_PIN)
+- **RX Pin**: GPIO 15 (P0.15) - Pin 10 on J10
+- **TX Pin**: GPIO 14 (P0.14) - Pin 8 on J10
 - **Baud Rate**: 115200
 
 **Note**: Pins 8 and 10 are used for:
 - **Pin 8**: DW3000_IRQ_Pin (interrupt pin for UWB chip)
 - **Pin 10**: DW3000_CS_Pin (SPI chip select for UWB chip)
 
-The UART for RS-485 communication uses **pins 15 (RX) and 19 (TX)**, not pins 8 and 10.
+The UART for RS-485 communication uses **GPIO 15 (RX) and GPIO 14 (TX)**, which correspond to **Pin 10 and Pin 8 on J10 connector**.
 
 ## Building and Flashing
 
@@ -99,8 +99,8 @@ Connect the RS-485 transceiver to:
 - **A+**: Connect to RS-485 A+ line
 - **B-**: Connect to RS-485 B- line  
 - **GND**: Connect to ground
-- **UART RX**: Connect to GPIO 15
-- **UART TX**: Connect to GPIO 19
+- **UART RX**: Connect to GPIO 15 (P0.15) - Pin 10 on J10
+- **UART TX**: Connect to GPIO 14 (P0.14) - Pin 8 on J10
 - **DE/RE**: Connect to control RS-485 direction (if needed)
 
 The firmware communicates at **115200 baud** with the Orchestrator.
