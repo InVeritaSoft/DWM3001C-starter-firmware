@@ -703,6 +703,7 @@ export class RS485Comm extends EventEmitter {
     // Format: SET_CONFIG ch=5 rate=6m8 pl=128 len=64 pwr=5 rate_hz=100
     // Use short code "CFG" for better reliability with long commands
     // Firmware supports both "CFG" (short) and "SET_CONFIG" (full)
+    console.log(`[RS485] setConfig() called for port ${this.port} (isOpen: ${this.isOpen})`);
     const params = [];
     if (config.channel !== undefined) params.push(`ch=${config.channel}`);
     if (config.data_rate !== undefined) {
@@ -732,6 +733,7 @@ export class RS485Comm extends EventEmitter {
 
     // Use short code "CFG" instead of "SET_CONFIG" for better reliability
     const command = `CFG ${params.join(" ")}`;
+    console.log(`[RS485] Sending CFG command to port ${this.port}: ${command}`);
 
     // #region agent log - SET_CONFIG entry
     fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
@@ -787,6 +789,7 @@ export class RS485Comm extends EventEmitter {
    */
   async startTest() {
     // Firmware supports both "STRT" (short) and "START_TEST" (full)
+    console.log(`[RS485] Sending START command to port ${this.port} (isOpen: ${this.isOpen})`);
     return this.sendCommand("STRT");
   }
 

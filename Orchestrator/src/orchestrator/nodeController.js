@@ -253,39 +253,50 @@ export class NodeController extends EventEmitter {
    */
   async configure(config) {
     try {
+      console.log(`[NodeController ${this.nodeId}] configure() called - state: ${this.state}, connected: ${this.isConnected()}`);
+      
       if (this.state === NodeState.RUNNING) {
         throw new Error("Cannot configure while test is running");
       }
 
       // Verify node is connected and responding before attempting configuration
       if (!this.isConnected()) {
-        throw new Error(
-          `Node ${this.nodeId} is not connected. Call connect() first.`
-        );
+        const errorMsg = `Node ${this.nodeId} is not connected. Call connect() first.`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
       // Quick connectivity check - send PING to verify firmware is responding
+      console.log(`[NodeController ${this.nodeId}] Sending PING to verify connectivity...`);
       try {
         await this.rs485Comm.ping();
+        console.log(`[NodeController ${this.nodeId}] ✓ PING successful`);
       } catch (pingError) {
-        throw new Error(
-          `Node ${this.nodeId} is not responding to commands. ` +
-            `Port is open but firmware may not be running or RS-485 communication is failing. ` +
-            `Original error: ${pingError.message}`
-        );
+        const errorMsg = `Node ${this.nodeId} is not responding to commands. ` +
+          `Port is open but firmware may not be running or RS-485 communication is failing. ` +
+          `Original error: ${pingError.message}`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
+      console.log(`[NodeController ${this.nodeId}] Sending configuration...`);
       const response = await this.rs485Comm.setConfig(config);
+      console.log(`[NodeController ${this.nodeId}] Configuration response: ${response}`);
+      
       // Firmware responds with "OK CONFIG" (not "OK CONFIG_SET")
       if (response.startsWith("OK CONFIG")) {
         this.config = { ...config };
         this.setState(NodeState.CONFIGURED);
         this.emit("configured", config);
+        console.log(`[NodeController ${this.nodeId}] ✓ Configuration successful`);
         return true;
       } else {
-        throw new Error(`Configuration failed: ${response}`);
+        const errorMsg = `Configuration failed: ${response}`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     } catch (error) {
+      console.error(`[NodeController ${this.nodeId}] configure() error: ${error.message}`);
       this.setState(NodeState.ERROR);
       this.lastError = error.message;
       this.emit("error", error);
@@ -299,23 +310,40 @@ export class NodeController extends EventEmitter {
    */
   async startTest() {
     try {
+      console.log(`[NodeController ${this.nodeId}] startTest() called - state: ${this.state}, connected: ${this.isConnected()}`);
+      
       if (
         this.state !== NodeState.CONFIGURED &&
         this.state !== NodeState.STOPPED
       ) {
-        throw new Error(`Cannot start test from state: ${this.state}`);
+        const errorMsg = `Cannot start test from state: ${this.state} (must be CONFIGURED or STOPPED)`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
+      if (!this.isConnected()) {
+        const errorMsg = `Node ${this.nodeId} is not connected`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
+      console.log(`[NodeController ${this.nodeId}] Sending START command...`);
       const response = await this.rs485Comm.startTest();
+      console.log(`[NodeController ${this.nodeId}] START response: ${response}`);
+      
       // Firmware responds with "OK START" (not "OK TEST_STARTED")
       if (response.startsWith("OK START")) {
         this.setState(NodeState.RUNNING);
         this.emit("testStarted");
+        console.log(`[NodeController ${this.nodeId}] ✓ Test started successfully`);
         return true;
       } else {
-        throw new Error(`Start test failed: ${response}`);
+        const errorMsg = `Start test failed: ${response}`;
+        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     } catch (error) {
+      console.error(`[NodeController ${this.nodeId}] startTest() error: ${error.message}`);
       this.setState(NodeState.ERROR);
       this.lastError = error.message;
       this.emit("error", error);
