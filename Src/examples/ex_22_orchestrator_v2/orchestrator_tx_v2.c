@@ -682,9 +682,18 @@ int orchestrator_tx_v2(void)
     
     /* NOTE: LED 3 (Blue/D12) uses P0.14 which is also UART TX pin.
      * Cannot use LED 3 as it conflicts with UART functionality.
-     * UART is working if commands/responses work, even without LED indicator.
+     * Use Orange LED (LED 1) brief blink pattern to indicate UART initialized.
      */
     // bsp_board_led_on(3);  // DISABLED: Conflicts with UART TX pin (P0.14)
+    
+    /* Orange LED: Brief blink pattern to indicate UART initialized */
+    bsp_board_led_on(1);  // Orange LED ON = UART initialized
+    nrf_delay_ms(100);
+    bsp_board_led_off(1);
+    nrf_delay_ms(100);
+    bsp_board_led_on(1);
+    nrf_delay_ms(100);
+    bsp_board_led_off(1);
     
     /* Wait for UART to be ready */
     Sleep(300);
