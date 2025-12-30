@@ -257,6 +257,24 @@ export class NodeController extends EventEmitter {
         throw new Error("Cannot configure while test is running");
       }
 
+      // Verify node is connected and responding before attempting configuration
+      if (!this.isConnected()) {
+        throw new Error(
+          `Node ${this.nodeId} is not connected. Call connect() first.`
+        );
+      }
+
+      // Quick connectivity check - send PING to verify firmware is responding
+      try {
+        await this.rs485Comm.ping();
+      } catch (pingError) {
+        throw new Error(
+          `Node ${this.nodeId} is not responding to commands. ` +
+            `Port is open but firmware may not be running or RS-485 communication is failing. ` +
+            `Original error: ${pingError.message}`
+        );
+      }
+
       const response = await this.rs485Comm.setConfig(config);
       // Firmware responds with "OK CONFIG" (not "OK CONFIG_SET")
       if (response.startsWith("OK CONFIG")) {

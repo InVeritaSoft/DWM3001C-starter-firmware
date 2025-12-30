@@ -89,8 +89,9 @@ async function main() {
       console.error('     - Green LED should blink when response is sent');
       console.error('     - If no LEDs blink, firmware may not be running');
       console.error('  5. Test serial connection:');
-      console.error('     - Node A: npm run test-serial COM17');
-      console.error('     - Node B: npm run test-serial COM18');
+      console.error('     - Node A: npm run test-serial -- COM17');
+      console.error('     - Node B: npm run test-serial -- COM18');
+      console.error('     - Linux: npm run test-serial -- /dev/ttyUSB0');
       console.error('  6. Verify firmware is orchestrator v2:');
       console.error('     - Node A: .\\build-and-flash-tx.ps1');
       console.error('     - Node B: .\\build-and-flash-rx.ps1');

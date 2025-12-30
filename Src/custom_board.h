@@ -95,8 +95,8 @@ extern "C" {
 
 #define BSP_BUTTON_0   BUTTON_1
 
-#define RX_PIN_NUMBER  15
-#define TX_PIN_NUMBER  19
+#define RX_PIN_NUMBER  19
+#define TX_PIN_NUMBER  15
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -126,8 +126,9 @@ extern "C" {
 #define DW3000_SPI_IRQ_PRIORITY APP_IRQ_PRIORITY_LOW
 
 // UART symbolic constants
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // DWM1001 module pin 20, DEV board name RXD
-#define UART_0_RX_PIN       RX_PIN_NUMBER           // DWM1001 module pin 18, DEV board name TXD
+// NOTE: Pins swapped - GPIO 19 is now RX, GPIO 15 is now TX
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 15 - TX pin (sends data)
+#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 19 - RX pin (receives data)
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED

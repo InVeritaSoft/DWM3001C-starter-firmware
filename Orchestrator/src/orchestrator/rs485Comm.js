@@ -365,7 +365,7 @@ export class RS485Comm extends EventEmitter {
           `     - Baud rate matches firmware (115200)\n` +
           `     - No other software using the port\n` +
           `  5. Test with diagnostic script:\n` +
-          `     - Run: npm run test-serial ${this.port}\n` +
+          `     - Run: npm run test-serial -- ${this.port}\n` +
           `     - This will test PING and NODE_TYPE commands\n` +
           `     - Watch LEDs and check for responses\n` +
           `  6. Test with direct serial terminal:\n` +
