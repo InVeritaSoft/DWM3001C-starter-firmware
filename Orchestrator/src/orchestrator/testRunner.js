@@ -105,21 +105,53 @@ export class TestRunner extends EventEmitter {
   }
 
   /**
-   * Configure both nodes
+   * Configure both nodes simultaneously
    * @param {Object} uwbConfig - UWB configuration
    */
   async configureNodes(uwbConfig) {
     this.emit("configuring");
 
     try {
-      // Configure Node A
-      console.log("Configuring Node A...");
-      await this.nodeA.configure(uwbConfig);
+      console.log("\n" + "=".repeat(60));
+      console.log("CONFIGURING BOTH NODES SIMULTANEOUSLY");
+      console.log("=".repeat(60));
+      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
+      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
+      
+      const [resultA, resultB] = await Promise.allSettled([
+        this.nodeA.configure(uwbConfig).then(() => {
+          console.log("✓ Node A configured successfully");
+          return "Node A";
+        }).catch((err) => {
+          console.error(`✗ Node A configuration failed: ${err.message}`);
+          throw err;
+        }),
+        this.nodeB.configure(uwbConfig).then(() => {
+          console.log("✓ Node B configured successfully");
+          return "Node B";
+        }).catch((err) => {
+          console.error(`✗ Node B configuration failed: ${err.message}`);
+          throw err;
+        })
+      ]);
 
-      // Configure Node B
-      console.log("Configuring Node B...");
-      await this.nodeB.configure(uwbConfig);
+      // Check results
+      const errors = [];
+      if (resultA.status === 'rejected') {
+        errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
+      }
+      if (resultB.status === 'rejected') {
+        errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
+      }
 
+      if (errors.length > 0) {
+        const errorMsg = `Failed to configure nodes: ${errors.join('; ')}`;
+        console.error(errorMsg);
+        console.log("=".repeat(60) + "\n");
+        throw new Error(errorMsg);
+      }
+
+      console.log("=".repeat(60) + "\n");
       this.emit("configured", uwbConfig);
     } catch (error) {
       this.emit("error", error);
@@ -136,14 +168,46 @@ export class TestRunner extends EventEmitter {
     try {
       // Start both nodes simultaneously for synchronized UWB communication
       console.log("Starting both nodes simultaneously...");
-      await Promise.all([
+      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
+      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
+      
+      console.log("\n" + "=".repeat(60));
+      console.log("SENDING START COMMANDS TO BOTH NODES SIMULTANEOUSLY");
+      console.log("=".repeat(60));
+      
+      const [resultA, resultB] = await Promise.allSettled([
         this.nodeA.startTest().then(() => {
-          console.log("✓ Node A started");
+          console.log("✓ Node A started successfully");
+          return "Node A";
+        }).catch((err) => {
+          console.error(`✗ Node A start failed: ${err.message}`);
+          throw err;
         }),
         this.nodeB.startTest().then(() => {
-          console.log("✓ Node B started");
+          console.log("✓ Node B started successfully");
+          return "Node B";
+        }).catch((err) => {
+          console.error(`✗ Node B start failed: ${err.message}`);
+          throw err;
         })
       ]);
+      
+      console.log("=".repeat(60) + "\n");
+
+      // Check results
+      const errors = [];
+      if (resultA.status === 'rejected') {
+        errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
+      }
+      if (resultB.status === 'rejected') {
+        errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
+      }
+
+      if (errors.length > 0) {
+        const errorMsg = `Failed to start nodes: ${errors.join('; ')}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
 
       this.emit("started");
     } catch (error) {
@@ -266,14 +330,39 @@ export class TestRunner extends EventEmitter {
     try {
       // Stop both nodes simultaneously
       console.log("Stopping both nodes simultaneously...");
-      await Promise.all([
+      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
+      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
+      
+      const [resultA, resultB] = await Promise.allSettled([
         this.nodeA.stopTest().then(() => {
-          console.log("✓ Node A stopped");
+          console.log("✓ Node A stopped successfully");
+          return "Node A";
+        }).catch((err) => {
+          console.error(`✗ Node A stop failed: ${err.message}`);
+          throw err;
         }),
         this.nodeB.stopTest().then(() => {
-          console.log("✓ Node B stopped");
+          console.log("✓ Node B stopped successfully");
+          return "Node B";
+        }).catch((err) => {
+          console.error(`✗ Node B stop failed: ${err.message}`);
+          throw err;
         })
       ]);
+
+      // Check results
+      const errors = [];
+      if (resultA.status === 'rejected') {
+        errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
+      }
+      if (resultB.status === 'rejected') {
+        errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
+      }
+
+      if (errors.length > 0) {
+        console.warn(`Some nodes failed to stop: ${errors.join('; ')}`);
+        // Don't throw - we still want to emit stopped event
+      }
 
       this.emit("stopped");
       this.emit("testStopped"); // Also emit testStopped for web server compatibility
