@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 try {
     Write-Host "Configuring firmware for Simple TX example..." -ForegroundColor Green
 
-    $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $projectRoot = Split-Path -Parent $PSScriptRoot
     $exampleSelectionFile = Join-Path $projectRoot "Src\example_selection.h"
     $mainFile = Join-Path $projectRoot "Src\main.c"
 

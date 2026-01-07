@@ -4,7 +4,7 @@
 Write-Host "Building DWM3001C firmware..." -ForegroundColor Green
 
 # Get the project root directory
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = $projectRoot.Replace('\', '/')
 
 # Ensure Docker is running

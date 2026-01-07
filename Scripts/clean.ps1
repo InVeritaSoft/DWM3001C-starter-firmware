@@ -4,7 +4,7 @@
 Write-Host "Cleaning build outputs..." -ForegroundColor Yellow
 
 # Get the project root directory
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = $projectRoot.Replace('\', '/')
 
 # Ensure Docker is running
