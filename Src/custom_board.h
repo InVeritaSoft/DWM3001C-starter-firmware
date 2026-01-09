@@ -95,8 +95,14 @@ extern "C" {
 
 #define BSP_BUTTON_0   BUTTON_1
 
-#define RX_PIN_NUMBER  15
-#define TX_PIN_NUMBER  14
+// Using default UART pins from DWM3001CDK schematic:
+// - J10 Pin 8 = TXD0/GPIO14 (P0.14) = Default UART TX
+// CORRECTED: Based on hardware testing
+// - RX_PIN_NUMBER 14 = GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Receives commands correctly
+// - TX_PIN_NUMBER 15 = GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Sends startup messages correctly
+// Hardware testing confirmed: RX=14, TX=15 works for receiving commands
+#define RX_PIN_NUMBER  14  // GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Confirmed working for RX
+#define TX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Confirmed working for TX
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -122,9 +128,12 @@ extern "C" {
 #define DW3000_SPI_IRQ_PRIORITY APP_IRQ_PRIORITY_LOW
 
 // UART symbolic constants
-// UART pins match J10 connector routing: Pin 8 = TX (GPIO14), Pin 10 = RX (GPIO15)
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 14 (P0.14) - TX pin (Pin 8 on J10)
-#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15) - RX pin (Pin 10 on J10)
+// Using default UART pins from schematic:
+// - TX: GPIO 14 (P0.14) = J10 Pin 8 (TXD0)
+// - RX: GPIO 15 (P0.15) = J10 Pin 10 (RXD0)
+// Hardware connection: Move RS-485 TXD to J10 Pin 8, keep RXD on J10 Pin 10
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 14 (P0.14) - J10 Pin 8 (TXD0) - Default UART TX
+#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15) - J10 Pin 10 (RXD0) - Default UART RX
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED

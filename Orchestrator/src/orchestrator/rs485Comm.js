@@ -512,7 +512,7 @@ export class RS485Comm extends EventEmitter {
     }
 
     // Filter out firmware debug messages
-    // Firmware sends: [UART], [CMD], [HANDLER], [PARSER], [UART_TX], etc.
+    // Firmware sends: [UART], [CMD], [HANDLER], [PARSER], [UART_TX], [RX], [DBG], etc.
     const lower = data.toLowerCase();
     const isFiltered =
       lower.includes("[uart]") ||
@@ -522,6 +522,7 @@ export class RS485Comm extends EventEmitter {
       lower.includes("[uart_tx]") ||
       lower.includes("[dbg]") ||
       lower.includes("<dbg>") ||
+      lower.includes("[rx]") ||  // Filter [RX] byte=0xXX messages
       lower.includes("mpu:") ||
       lower.includes("os:") ||
       (lower.startsWith("[") &&

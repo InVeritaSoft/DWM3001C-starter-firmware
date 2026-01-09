@@ -214,19 +214,42 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
+                // DEBUG: Blink BLUE LED on every byte received to confirm interrupt is working
+                // This helps diagnose if interrupt handler is being called
+                bsp_board_led_on(3);  // Blue LED - shows interrupt is firing
+                nrf_delay_ms(10);      // Short blink
+                bsp_board_led_off(3);
+                
+                // DEBUG: Log every byte received
+                char debug_msg[32];
+                snprintf(debug_msg, sizeof(debug_msg), "[RX] byte=0x%02X '%c'", byte, (byte >= 32 && byte < 127) ? byte : '?');
+                test_run_info((unsigned char *)debug_msg);
+                
                 if (byte == '\r' || byte == '\n')
                 {
                     if (rx_index > 0)
                     {
                         rx_buffer[rx_index] = '\0';
                         
-                        // ORANGE LED: RX - Command received
+                        // DEBUG: Log complete command received
+                        char cmd_log[64];
+                        snprintf(cmd_log, sizeof(cmd_log), "[RX] CMD: '%s'", rx_buffer);
+                        test_run_info((unsigned char *)cmd_log);
+                        
+                        // ORANGE LED: RX - Complete command received
                         bsp_board_led_on(1);
-                        nrf_delay_ms(50);
+                        nrf_delay_ms(100);  // Longer blink for complete command
                         bsp_board_led_off(1);
                         
+                        // Parse and execute command
                         parse_command((char *)rx_buffer);
                         rx_index = 0;
+                    }
+                    else
+                    {
+                        // Empty command (just newline) - send immediate response for testing
+                        test_run_info((unsigned char *)"[RX] Empty command, sending test response");
+                        send_response("OK TEST");
                     }
                 }
                 else if (rx_index < (UART_BUFFER_SIZE - 1))
@@ -236,13 +259,34 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                 else
                 {
                     rx_index = 0; // Buffer overflow, reset
+                    test_run_info((unsigned char *)"[RX] Buffer overflow!");
                 }
+            }
+            else
+            {
+                // DEBUG: Log error reading byte
+                char err_log[32];
+                snprintf(err_log, sizeof(err_log), "[RX] app_uart_get err=0x%08lX", (unsigned long)err_code);
+                test_run_info((unsigned char *)err_log);
             }
             break;
         }
         case APP_UART_COMMUNICATION_ERROR:
-        case APP_UART_FIFO_ERROR:
+        {
+            // Clear UART errors to recover from communication issues
+            NRF_UART0->ERRORSRC = 0xFFFFFFFF;  // Clear all error sources
+            // Reset RX buffer on error
+            rx_index = 0;
             break;
+        }
+        case APP_UART_FIFO_ERROR:
+        {
+            // Clear UART errors to recover from FIFO issues
+            NRF_UART0->ERRORSRC = 0xFFFFFFFF;  // Clear all error sources
+            // Reset RX buffer on error
+            rx_index = 0;
+            break;
+        }
         default:
             break;
     }
@@ -264,28 +308,43 @@ static void uart_init(void)
     // #endregion
     
     // #region agent log
-    uint32_t pin14_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
-    uint32_t pin15_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
-    uint32_t pin14_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
-    uint32_t pin15_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
-    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state BEFORE reset: p14_dir=%lu p15_dir=%lu p14_cnf=0x%08lX p15_cnf=0x%08lX",
-             (unsigned long)pin14_dir, (unsigned long)pin15_dir, (unsigned long)pin14_cnf, (unsigned long)pin15_cnf);
+    uint32_t pin_tx_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
+    uint32_t pin_rx_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
+    uint32_t pin_tx_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
+    uint32_t pin_rx_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state BEFORE reset: tx_pin%d_dir=%lu rx_pin%d_dir=%lu tx_cnf=0x%08lX rx_cnf=0x%08lX",
+             UART_0_TX_PIN, (unsigned long)pin_tx_dir, UART_0_RX_PIN, (unsigned long)pin_rx_dir,
+             (unsigned long)pin_tx_cnf, (unsigned long)pin_rx_cnf);
     test_run_info((unsigned char *)log_buf);
     // #endregion
     
+    // CRITICAL: Disable UART first to ensure clean state (if it was previously enabled)
+    // This mimics what happens when reset button is held - UART is disabled
+    // 0 = Disabled, 4 = Enabled (per nRF52 UART register spec)
+    NRF_UART0->ENABLE = 0;  // Disable UART
+    nrf_delay_ms(10);  // Wait for UART to fully disable
+    
     // CRITICAL: Reset UART pins to default state IMMEDIATELY before APP_UART_FIFO_INIT
     // SDK may require pins to be unconfigured before UART takes control
-    nrf_gpio_cfg_default(UART_0_RX_PIN);
-    nrf_gpio_cfg_default(UART_0_TX_PIN);
-    nrf_delay_ms(1);  // Small delay to ensure pin state is stable
+    // Using default UART pins: TX=14 (J10 Pin 8, TXD0), RX=15 (J10 Pin 10, RXD0)
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
+    nrf_delay_ms(20);  // Increased delay to ensure pin state is stable (was 1ms - too short!)
+    
+    // CRITICAL: Configure RX pin as input with pullup AFTER reset but BEFORE UART init
+    // This ensures proper pin state before UART takes control (from demo firmware)
+    // Must be done AFTER cfg_default() to avoid being cleared
+    nrf_gpio_cfg_input(UART_0_RX_PIN, NRF_GPIO_PIN_PULLUP);
+    nrf_delay_ms(5);  // Small delay after pullup configuration
     
     // #region agent log
-    pin14_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
-    pin15_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
-    pin14_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
-    pin15_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
-    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state AFTER reset: p14_dir=%lu p15_dir=%lu p14_cnf=0x%08lX p15_cnf=0x%08lX",
-             (unsigned long)pin14_dir, (unsigned long)pin15_dir, (unsigned long)pin14_cnf, (unsigned long)pin15_cnf);
+    pin_tx_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
+    pin_rx_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
+    pin_tx_cnf = NRF_GPIO->PIN_CNF[UART_0_TX_PIN];
+    pin_rx_cnf = NRF_GPIO->PIN_CNF[UART_0_RX_PIN];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] pin state AFTER reset: tx_pin%d_dir=%lu rx_pin%d_dir=%lu tx_cnf=0x%08lX rx_cnf=0x%08lX",
+             UART_0_TX_PIN, (unsigned long)pin_tx_dir, UART_0_RX_PIN, (unsigned long)pin_rx_dir,
+             (unsigned long)pin_tx_cnf, (unsigned long)pin_rx_cnf);
     test_run_info((unsigned char *)log_buf);
     // #endregion
     
@@ -316,9 +375,64 @@ static void uart_init(void)
                        APP_IRQ_PRIORITY_LOW,
                        p_err_code);
     
+    // CRITICAL: Explicitly enable UART, interrupts, and clear any errors
+    // This ensures UART is in a known good state (mimics reset button behavior)
+    if (err_code == NRF_SUCCESS) {
+        // Clear any pending UART errors
+        NRF_UART0->ERRORSRC = 0xFFFFFFFF;  // Clear all error sources
+        
+        // Explicitly enable UART (should already be enabled by APP_UART_FIFO_INIT, but ensure it)
+        NRF_UART0->ENABLE = 4;  // 4 = UART_ENABLE_ENABLE_Enabled
+        nrf_delay_ms(10);  // Small delay after explicit enable
+        
+        // CRITICAL: Enable UART RX interrupt AFTER UART is enabled
+        // This is essential for the event handler to be called when data arrives
+        // APP_UART_FIFO_INIT should enable this, but we ensure it's set
+        // Note: Must be done AFTER ENABLE is set, otherwise it may not work
+        NRF_UART0->INTENSET = (1UL << 2);  // UART_INTENSET_RXDRDY_Msk = bit 2 (RX data ready)
+        
+        // Verify interrupt is enabled
+        uint32_t inten = NRF_UART0->INTENSET;
+        snprintf(log_buf, sizeof(log_buf), "[DBG] UART INTENSET=0x%08lX (bit 2 should be set)", (unsigned long)inten);
+        test_run_info((unsigned char *)log_buf);
+        
+        nrf_delay_ms(10);  // Small delay after interrupt enable
+    }
+    
+    // CRITICAL: Wait for UART to fully initialize before use
+    // This ensures UART hardware is ready (fixes intermittent response issue)
+    nrf_delay_ms(100);  // Increased delay to allow UART to fully stabilize (was 50ms)
+    
     // #region agent log
     snprintf(log_buf, sizeof(log_buf), "[DBG] APP_UART_FIFO_INIT result: err=0x%08lX", (unsigned long)err_code);
     test_run_info((unsigned char *)log_buf);
+    
+    // Verify UART PSEL registers are set correctly (GPIO pins enabled for UART)
+    if (err_code == NRF_SUCCESS) {
+        uint32_t psel_rxd = NRF_UART0->PSELRXD;
+        uint32_t psel_txd = NRF_UART0->PSELTXD;
+        uint32_t psel_rts = NRF_UART0->PSELRTS;
+        uint32_t psel_cts = NRF_UART0->PSELCTS;
+        uint32_t enable = NRF_UART0->ENABLE;
+        snprintf(log_buf, sizeof(log_buf), "[DBG] UART PSEL: RXD=%lu TXD=%lu RTS=%lu CTS=%lu ENABLE=%lu",
+                 (unsigned long)psel_rxd, (unsigned long)psel_txd, 
+                 (unsigned long)psel_rts, (unsigned long)psel_cts, (unsigned long)enable);
+        test_run_info((unsigned char *)log_buf);
+        
+        // Check if pins match expected values
+        if (psel_rxd != UART_0_RX_PIN || psel_txd != UART_0_TX_PIN) {
+            snprintf(log_buf, sizeof(log_buf), "[DBG] WARNING: PSEL mismatch! Expected RXD=%d TXD=%d, got RXD=%lu TXD=%lu",
+                     UART_0_RX_PIN, UART_0_TX_PIN, (unsigned long)psel_rxd, (unsigned long)psel_txd);
+            test_run_info((unsigned char *)log_buf);
+        }
+        
+        // Check if UART is enabled
+        if (enable != 4) {  // 4 = UART_ENABLED_ENABLE_Enabled
+            snprintf(log_buf, sizeof(log_buf), "[DBG] WARNING: UART not enabled! ENABLE register = %lu (expected 4)",
+                     (unsigned long)enable);
+            test_run_info((unsigned char *)log_buf);
+        }
+    }
     // #endregion
     
     if (err_code != NRF_SUCCESS)
@@ -358,10 +472,20 @@ static void send_response(const char *response)
 {
     uint32_t len = strlen(response);
     uint32_t timeout;
+    uint32_t bytes_sent = 0;
+    static bool led3_toggle_state = false;  // Static variable to track LED toggle state
     
-    // GREEN LED: TX - Response being sent
+    // Diagnostic: Log TX start
+    char log_buf[64];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] TX start: '%s' (%lu bytes)", response, (unsigned long)len);
+    test_run_info((unsigned char *)log_buf);
+    
+    // GREEN LED: TX - Response being sent (turn on at start)
     bsp_board_led_on(2);
+    // BLUE LED: TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8) - keep on during transmission
+    bsp_board_led_on(3);
     
+    // Send response string
     for (uint32_t i = 0; i < len; i++)
     {
         timeout = 1000;
@@ -370,21 +494,57 @@ static void send_response(const char *response)
             timeout--;
             Sleep(1);
         }
-        if (timeout == 0) break;
+        if (timeout == 0) {
+            // TX failed - blink red LED to indicate error
+            bsp_board_led_off(2);
+            bsp_board_led_off(3);
+            bsp_board_led_on(0);  // Red LED = error
+            nrf_delay_ms(50);
+            bsp_board_led_off(0);
+            return;  // Exit early on failure
+        }
+        bytes_sent++;
+        // Toggle blue LED for each byte to show activity
+        led3_toggle_state = !led3_toggle_state;
+        if (led3_toggle_state) {
+            bsp_board_led_on(3);
+        } else {
+            bsp_board_led_off(3);
+        }
     }
     
+    // Send carriage return
     timeout = 1000;
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
         Sleep(1);
     }
+    if (timeout > 0) {
+        bytes_sent++;
+        led3_toggle_state = !led3_toggle_state;
+        if (led3_toggle_state) {
+            bsp_board_led_on(3);
+        } else {
+            bsp_board_led_off(3);
+        }
+    }
     
+    // Send newline
     timeout = 1000;
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
         Sleep(1);
+    }
+    if (timeout > 0) {
+        bytes_sent++;
+        led3_toggle_state = !led3_toggle_state;
+        if (led3_toggle_state) {
+            bsp_board_led_on(3);
+        } else {
+            bsp_board_led_off(3);
+        }
     }
     
     // Wait for UART transmission to complete
@@ -392,7 +552,23 @@ static void send_response(const char *response)
     // Add extra margin to ensure all bytes are transmitted
     nrf_delay_ms(5);  // Increased delay to ensure transmission completes (was 2ms)
     
-    bsp_board_led_off(2);
+    // Turn off LEDs - transmission complete
+    bsp_board_led_off(2);  // Green LED off
+    bsp_board_led_off(3);  // Blue LED off
+    
+    // Diagnostic: Log TX completion
+    snprintf(log_buf, sizeof(log_buf), "[DBG] TX complete: %lu bytes sent", (unsigned long)bytes_sent);
+    test_run_info((unsigned char *)log_buf);
+    
+    // Diagnostic: If no bytes were sent, blink red LED
+    if (bytes_sent == 0) {
+        for (int i = 0; i < 3; i++) {
+            bsp_board_led_on(0);  // Red LED = no bytes sent
+            nrf_delay_ms(100);
+            bsp_board_led_off(0);
+            nrf_delay_ms(100);
+        }
+    }
 }
 
 /**
@@ -493,7 +669,14 @@ static void parse_command(char *cmd)
     if (strcmp(cmd_upper, "PNG") == 0 || strcmp(cmd_upper, "PING") == 0)
     {
         // CRITICAL: Respond immediately to PING - this is used for connectivity checks
+        // Diagnostic: Log that we're sending response
+        test_run_info((unsigned char *)"[DBG] PNG received, sending OK response");
+        
+        // Force immediate response with newline
         send_response("OK");
+        send_response("\r\n");  // Ensure response is complete
+        
+        test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;  // Return immediately after sending response
     }
     else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
@@ -724,8 +907,7 @@ int orchestrator_rx_v2(void)
     bsp_board_led_off(0);  // Red LED - Default/Error states
     bsp_board_led_off(1);  // Orange LED - RX (command received)
     bsp_board_led_off(2);  // Green LED - TX (response sent)
-    // LED 3 (Blue/D12) disabled - conflicts with UART TX pin (P0.14)
-    // bsp_board_led_off(3);  // DISABLED: Conflicts with UART TX pin
+    bsp_board_led_off(3);  // Blue LED - TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8)
     
     /* Red LED: Default state - blink to show firmware started */
     bsp_board_led_on(0);
@@ -736,24 +918,31 @@ int orchestrator_rx_v2(void)
     nrf_delay_ms(100);
     bsp_board_led_off(0);
     
+    /* CRITICAL: Configure RX pin as input with pullup BEFORE UART initialization */
+    /* This matches the demo firmware pattern (peripherals_init() does this) */
+    /* The pin will be reset inside uart_init(), but this ensures initial state is correct */
+    nrf_gpio_cfg_input(UART_0_RX_PIN, NRF_GPIO_PIN_PULLUP);
+    
     /* CRITICAL: Initialize UART FIRST, before anything else */
     /* Pin reset is now done inside uart_init() immediately before APP_UART_FIFO_INIT */
+    /* RX pin pullup is reconfigured inside uart_init() after the reset */
     uart_init();
     
-    /* NOTE: LED 3 (Blue/D12) uses P0.14 which is also UART TX pin.
-     * Cannot use LED 3 as it conflicts with UART functionality.
-     * Use Orange LED (LED 1) brief blink pattern to indicate UART initialized.
+    /* LED pattern to indicate UART initialized:
+     * - Orange LED (LED 1): UART initialized
+     * - Blue LED (LED 3): TX activity indicator (GPIO 14 = TX pin, J10 Pin 8)
      */
-    // bsp_board_led_on(3);  // DISABLED: Conflicts with UART TX pin (P0.14)
-    
-    /* Orange LED: Brief blink pattern to indicate UART initialized */
     bsp_board_led_on(1);  // Orange LED ON = UART initialized
-    nrf_delay_ms(100);
+    bsp_board_led_on(3);  // Blue LED ON = UART ready
+    nrf_delay_ms(200);
     bsp_board_led_off(1);
+    bsp_board_led_off(3);
     nrf_delay_ms(100);
     bsp_board_led_on(1);
-    nrf_delay_ms(100);
+    bsp_board_led_on(3);
+    nrf_delay_ms(200);
     bsp_board_led_off(1);
+    bsp_board_led_off(3);
     
     /* Wait for UART to be ready */
     Sleep(300);
