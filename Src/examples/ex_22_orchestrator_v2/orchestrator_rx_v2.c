@@ -220,36 +220,19 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                 nrf_delay_ms(10);      // Short blink
                 bsp_board_led_off(3);
                 
-                // DEBUG: Log every byte received
-                char debug_msg[32];
-                snprintf(debug_msg, sizeof(debug_msg), "[RX] byte=0x%02X '%c'", byte, (byte >= 32 && byte < 127) ? byte : '?');
-                test_run_info((unsigned char *)debug_msg);
-                
                 if (byte == '\r' || byte == '\n')
                 {
                     if (rx_index > 0)
                     {
                         rx_buffer[rx_index] = '\0';
                         
-                        // DEBUG: Log complete command received
-                        char cmd_log[64];
-                        snprintf(cmd_log, sizeof(cmd_log), "[RX] CMD: '%s'", rx_buffer);
-                        test_run_info((unsigned char *)cmd_log);
-                        
                         // ORANGE LED: RX - Complete command received
                         bsp_board_led_on(1);
                         nrf_delay_ms(100);  // Longer blink for complete command
                         bsp_board_led_off(1);
                         
-                        // Parse and execute command
                         parse_command((char *)rx_buffer);
                         rx_index = 0;
-                    }
-                    else
-                    {
-                        // Empty command (just newline) - send immediate response for testing
-                        test_run_info((unsigned char *)"[RX] Empty command, sending test response");
-                        send_response("OK TEST");
                     }
                 }
                 else if (rx_index < (UART_BUFFER_SIZE - 1))
@@ -259,15 +242,7 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                 else
                 {
                     rx_index = 0; // Buffer overflow, reset
-                    test_run_info((unsigned char *)"[RX] Buffer overflow!");
                 }
-            }
-            else
-            {
-                // DEBUG: Log error reading byte
-                char err_log[32];
-                snprintf(err_log, sizeof(err_log), "[RX] app_uart_get err=0x%08lX", (unsigned long)err_code);
-                test_run_info((unsigned char *)err_log);
             }
             break;
         }
@@ -306,6 +281,19 @@ static void uart_init(void)
              UART_0_RX_PIN, UART_0_TX_PIN, RTS_PIN_NUMBER, CTS_PIN_NUMBER);
     test_run_info((unsigned char *)log_buf);
     // #endregion
+    
+    // CRITICAL: Configure RS-485 DE (Driver Enable) pin FIRST (if defined)
+    // DE pin controls RS-485 transceiver direction:
+    // - LOW = receive mode (default)
+    // - HIGH = transmit mode
+    #ifdef RS485_DE_PIN
+    nrf_gpio_cfg_output(RS485_DE_PIN);
+    nrf_gpio_pin_clear(RS485_DE_PIN);  // Set to receive mode (LOW)
+    nrf_delay_ms(10);  // Wait for transceiver to enter receive mode
+    test_run_info((unsigned char *)"[DBG] RS-485 DE pin configured (receive mode)");
+    #else
+    test_run_info((unsigned char *)"[DBG] RS-485 DE pin not defined - assuming automatic direction control");
+    #endif
     
     // #region agent log
     uint32_t pin_tx_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
@@ -480,6 +468,12 @@ static void send_response(const char *response)
     snprintf(log_buf, sizeof(log_buf), "[DBG] TX start: '%s' (%lu bytes)", response, (unsigned long)len);
     test_run_info((unsigned char *)log_buf);
     
+    // CRITICAL: Enable RS-485 transmit mode BEFORE sending data (if DE pin defined)
+    #ifdef RS485_DE_PIN
+    nrf_gpio_pin_set(RS485_DE_PIN);  // Set DE HIGH = transmit mode
+    nrf_delay_us(50);  // Wait for transceiver to switch to transmit mode (typ. 10-30us)
+    #endif
+    
     // GREEN LED: TX - Response being sent (turn on at start)
     bsp_board_led_on(2);
     // BLUE LED: TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8) - keep on during transmission
@@ -551,6 +545,12 @@ static void send_response(const char *response)
     // At 115200 baud: ~87us per byte, so for "OK\r\n" (4 bytes) = ~348us
     // Add extra margin to ensure all bytes are transmitted
     nrf_delay_ms(5);  // Increased delay to ensure transmission completes (was 2ms)
+    
+    // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
+    #ifdef RS485_DE_PIN
+    nrf_gpio_pin_clear(RS485_DE_PIN);  // Set DE LOW = receive mode
+    nrf_delay_us(50);  // Wait for transceiver to switch back to receive mode
+    #endif
     
     // Turn off LEDs - transmission complete
     bsp_board_led_off(2);  // Green LED off
@@ -671,11 +671,7 @@ static void parse_command(char *cmd)
         // CRITICAL: Respond immediately to PING - this is used for connectivity checks
         // Diagnostic: Log that we're sending response
         test_run_info((unsigned char *)"[DBG] PNG received, sending OK response");
-        
-        // Force immediate response with newline
         send_response("OK");
-        send_response("\r\n");  // Ensure response is complete
-        
         test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;  // Return immediately after sending response
     }
@@ -947,9 +943,9 @@ int orchestrator_rx_v2(void)
     /* Wait for UART to be ready */
     Sleep(300);
     
-    /* Send startup message */
+    /* Send startup message to RTT only - don't send unsolicited UART messages */
     test_run_info((unsigned char *)"OK STARTUP V2");
-    send_response("OK STARTUP V2");
+    // Commented out: send_response("OK STARTUP V2");  // Don't send unsolicited messages
     Sleep(100);
 
     /* Configure SPI rate */
@@ -999,7 +995,7 @@ int orchestrator_rx_v2(void)
     else
     {
         test_run_info((unsigned char *)"OK DW3000_READY");
-        send_response("OK DW3000_READY");
+        // Commented out: send_response("OK DW3000_READY");  // Don't send unsolicited messages
     }
 
     /* Enable LEDs */
@@ -1014,7 +1010,7 @@ int orchestrator_rx_v2(void)
     /* Send message that we reached main loop */
     Sleep(100);
     test_run_info((unsigned char *)"OK MAIN_LOOP");
-    send_response("OK MAIN_LOOP");
+    // Commented out: send_response("OK MAIN_LOOP");  // Don't send unsolicited messages
     
     /* Main loop - process UART commands and RX packets */
     while (1)

@@ -138,6 +138,14 @@ extern "C" {
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED
 
+// RS-485 transceiver control pins
+// DE (Driver Enable): HIGH = transmit mode, LOW = receive mode
+// RE (Receiver Enable): LOW = receive mode, HIGH = disabled (often tied to DE via inverter)
+// For MAX485/MAX3485: DE and RE are typically tied together (active-high for TX, active-low for RX)
+// Using GPIO 13 (P0.13) for RS-485 DE/RE control (available on J10 Pin 6)
+// DISABLED: Module may have automatic direction control or DE/RE internally tied
+// #define RS485_DE_PIN        NRF_GPIO_PIN_MAP(0, 13)  // GPIO 13 (P0.13) - RS-485 Driver Enable
+
 #define LED_ERROR BSP_LED_0
 
 #define DW3000_MIN_SPI_FREQ (NRF_SPIM_FREQ_4M)

@@ -257,6 +257,19 @@ static void uart_init(void)
     test_run_info((unsigned char *)log_buf);
     // #endregion
     
+    // CRITICAL: Configure RS-485 DE (Driver Enable) pin FIRST (if defined)
+    // DE pin controls RS-485 transceiver direction:
+    // - LOW = receive mode (default)
+    // - HIGH = transmit mode
+    #ifdef RS485_DE_PIN
+    nrf_gpio_cfg_output(RS485_DE_PIN);
+    nrf_gpio_pin_clear(RS485_DE_PIN);  // Set to receive mode (LOW)
+    nrf_delay_ms(10);  // Wait for transceiver to enter receive mode
+    test_run_info((unsigned char *)"[DBG] RS-485 DE pin configured (receive mode)");
+    #else
+    test_run_info((unsigned char *)"[DBG] RS-485 DE pin not defined - assuming automatic direction control");
+    #endif
+    
     // #region agent log
     uint32_t pin_tx_dir = nrf_gpio_pin_dir_get(UART_0_TX_PIN);
     uint32_t pin_rx_dir = nrf_gpio_pin_dir_get(UART_0_RX_PIN);
@@ -423,6 +436,12 @@ static void send_response(const char *response)
     snprintf(log_buf, sizeof(log_buf), "[DBG] TX start: '%s' (%lu bytes)", response, (unsigned long)len);
     test_run_info((unsigned char *)log_buf);
     
+    // CRITICAL: Enable RS-485 transmit mode BEFORE sending data (if DE pin defined)
+    #ifdef RS485_DE_PIN
+    nrf_gpio_pin_set(RS485_DE_PIN);  // Set DE HIGH = transmit mode
+    nrf_delay_us(50);  // Wait for transceiver to switch to transmit mode (typ. 10-30us)
+    #endif
+    
     // GREEN LED: TX - Response being sent (turn on at start)
     bsp_board_led_on(2);
     // BLUE LED: TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8) - keep on during transmission
@@ -494,6 +513,12 @@ static void send_response(const char *response)
     // At 115200 baud: ~87us per byte, so for "OK\r\n" (4 bytes) = ~348us
     // Add extra margin to ensure all bytes are transmitted
     nrf_delay_ms(5);  // Increased delay to ensure transmission completes (was 2ms)
+    
+    // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
+    #ifdef RS485_DE_PIN
+    nrf_gpio_pin_clear(RS485_DE_PIN);  // Set DE LOW = receive mode
+    nrf_delay_us(50);  // Wait for transceiver to switch back to receive mode
+    #endif
     
     // Turn off LEDs - transmission complete
     bsp_board_led_off(2);  // Green LED off
@@ -895,8 +920,9 @@ int orchestrator_tx_v2(void)
     /* Wait for UART to be ready */
     Sleep(300);
     
-    /* Send startup message */
-    send_response("OK STARTUP V2");
+    /* Send startup message to RTT only - don't send unsolicited UART messages */
+    test_run_info((unsigned char *)"OK STARTUP V2");
+    // Commented out: send_response("OK STARTUP V2");  // Don't send unsolicited messages
     Sleep(100);
 
     /* Initialize app timer module */
@@ -968,7 +994,8 @@ int orchestrator_tx_v2(void)
     }
     else
     {
-        send_response("OK DW3000_READY");
+        test_run_info((unsigned char *)"OK DW3000_READY");
+        // Commented out: send_response("OK DW3000_READY");  // Don't send unsolicited messages
     }
 
     /* Enable LEDs - DW3000 internal LEDs will blink on TX/RX events */
@@ -982,7 +1009,8 @@ int orchestrator_tx_v2(void)
 
     /* Send message that we reached main loop */
     Sleep(100);
-    send_response("OK MAIN_LOOP");
+    test_run_info((unsigned char *)"OK MAIN_LOOP");
+    // Commented out: send_response("OK MAIN_LOOP");  // Don't send unsolicited messages
     
     /* Main loop - process UART commands */
     while (1)
