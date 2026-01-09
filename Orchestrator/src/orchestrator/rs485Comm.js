@@ -64,6 +64,7 @@ export class RS485Comm extends EventEmitter {
 
       // Handle incoming data
       this.parser.on("data", (data) => {
+        const timestamp = Date.now();
         const trimmed = data.toString().trim();
 
         // #region agent log - RS485 data received
@@ -81,6 +82,7 @@ export class RS485Comm extends EventEmitter {
                 hasResponseHandler: !!this.responseHandler,
                 pendingCommandsCount: this.pendingCommands.size,
                 pendingCommandIds: Array.from(this.pendingCommands.keys()),
+                timestamp,
               },
               timestamp: Date.now(),
               sessionId: "debug-session",
@@ -91,13 +93,18 @@ export class RS485Comm extends EventEmitter {
         ).catch(() => {});
         // #endregion
 
-        // Always log RX for debugging (not just when DEBUG_RS485 is set)
-        console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
+        // CAPTURE EVERYTHING - Enhanced logging with timestamp
+        console.log(`[RS485 LINE @${timestamp}] ${this.port}: Complete line received: "${trimmed}"`);
         console.log(
-          `[RS485 RX] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`
+          `[RS485 LINE @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`
         );
         console.log(
-          `[RS485 RX] ${this.port}: Pending commands: ${
+          `[RS485 LINE @${timestamp}] ${this.port}: Raw bytes: [${Array.from(Buffer.from(data))
+            .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+            .join(", ")}]`
+        );
+        console.log(
+          `[RS485 LINE @${timestamp}] ${this.port}: Pending commands: ${
             this.pendingCommands.size
           }, IDs: [${Array.from(this.pendingCommands.keys()).join(", ")}]`
         );
@@ -108,10 +115,19 @@ export class RS485Comm extends EventEmitter {
       // Note: When using pipe(), the parser consumes data, but raw listener should still fire
       // If firmware sends data, this will catch it even if parser doesn't parse it
       this.serialPort.on("data", (data) => {
-        // Always log raw data to see if anything is received
+        // CAPTURE EVERYTHING - Enhanced logging with timestamp
+        const timestamp = Date.now();
         const hex = data.toString("hex");
-        const ascii = data.toString("ascii").replace(/[^\x20-\x7E]/g, ".");
-        console.log(`[RS485 RAW] ${this.port}: Hex=${hex}, ASCII="${ascii}"`);
+        const ascii = data.toString("ascii").replace(/[^\x20-\x7E\r\n]/g, ".");
+        console.log(`[RS485 RAW @${timestamp}] ${this.port}: ${data.length} bytes - Hex=${hex}, ASCII="${ascii}"`);
+        
+        // Log individual bytes for detailed analysis
+        if (data.length > 0) {
+          const byteList = Array.from(data)
+            .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+            .join(", ");
+          console.log(`[RS485 BYTES @${timestamp}] ${this.port}: Bytes=[${byteList}]`);
+        }
 
         // #region agent log - RS485 raw data received
         fetch(
@@ -122,7 +138,7 @@ export class RS485Comm extends EventEmitter {
             body: JSON.stringify({
               location: "rs485Comm.js:rawData",
               message: "RS485 raw data received",
-              data: { port: this.port, hex, ascii, length: data.length },
+              data: { port: this.port, hex, ascii, length: data.length, timestamp },
               timestamp: Date.now(),
               sessionId: "debug-session",
               runId: "run1",
@@ -147,10 +163,10 @@ export class RS485Comm extends EventEmitter {
             alternatingPattern
           ) {
             console.log(
-              `[RS485 WARNING] ${this.port}: Potential baud rate mismatch detected!`
+              `[RS485 WARNING @${timestamp}] ${this.port}: Potential baud rate mismatch detected!`
             );
             console.log(
-              `[RS485 WARNING] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port}`
+              `[RS485 WARNING @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port}`
             );
           }
         }
@@ -465,6 +481,11 @@ export class RS485Comm extends EventEmitter {
    * @param {string} data - Response data
    */
   handleResponse(data) {
+    const timestamp = Date.now();
+    
+    // CAPTURE EVERYTHING - Log all incoming data for analysis
+    console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Processing response: "${data}" (len=${data?.length || 0})`);
+    
     // #region agent log - handleResponse entry
     fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
       method: "POST",
@@ -480,6 +501,7 @@ export class RS485Comm extends EventEmitter {
           pendingCommands: Array.from(this.pendingCommands.entries()).map(
             ([id, cmd]) => ({ id, command: cmd.command })
           ),
+          timestamp,
         },
         timestamp: Date.now(),
         sessionId: "debug-session",
@@ -490,6 +512,7 @@ export class RS485Comm extends EventEmitter {
     // #endregion
     // Skip empty lines
     if (!data || data.length === 0) {
+      console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Empty data, skipping`);
       // #region agent log - handleResponse empty data
       fetch(
         "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
@@ -548,8 +571,9 @@ export class RS485Comm extends EventEmitter {
         }
       ).catch(() => {});
       // #endregion
-      // Always log filtered messages to see what firmware is sending
-      console.log(`[RS485 FILTERED] ${this.port}: ${data}`);
+      // Always log filtered messages to see what firmware is sending - CAPTURE EVERYTHING
+      console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filtered debug message: "${data}"`);
+      console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filter reason: contains debug markers`);
       return;
     }
 
@@ -617,6 +641,11 @@ export class RS485Comm extends EventEmitter {
         // #endregion
         clearTimeout(pending.timer);
         this.pendingCommands.delete(id);
+
+        // Log successful response match
+        console.log(
+          `[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${data}`
+        );
 
         if (data.toUpperCase().startsWith("OK")) {
           pending.resolve(data);
