@@ -203,6 +203,181 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
     }
   });
 
+  /**
+   * @swagger
+   * /api/nodes/connect:
+   *   post:
+   *     summary: Connect to both nodes
+   *     tags: [Node Control]
+   *     responses:
+   *       200:
+   *         description: Connection results
+   */
+  router.post('/nodes/connect', async (req, res) => {
+    try {
+      const results = await Promise.allSettled([
+        nodeA.connect(),
+        nodeB.connect()
+      ]);
+
+      res.json({
+        nodeA: results[0].status === 'fulfilled' ? 'connected' : `error: ${results[0].reason.message}`,
+        nodeB: results[1].status === 'fulfilled' ? 'connected' : `error: ${results[1].reason.message}`,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/disconnect:
+   *   post:
+   *     summary: Disconnect from both nodes
+   *     tags: [Node Control]
+   *     responses:
+   *       200:
+   *         description: Disconnected
+   */
+  router.post('/nodes/disconnect', async (req, res) => {
+    try {
+      await Promise.allSettled([
+        nodeA.disconnect(),
+        nodeB.disconnect()
+      ]);
+      res.json({ message: 'Nodes disconnected' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/ping:
+   *   post:
+   *     summary: Ping specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Ping result
+   */
+  router.post('/nodes/:nodeId/ping', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const result = await node.ping();
+      res.json({ success: result });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/send:
+   *   post:
+   *     summary: Send custom command to specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               command: { type: string }
+   *               timeout: { type: number }
+   *     responses:
+   *       200:
+   *         description: Command response
+   */
+  router.post('/nodes/:nodeId/send', async (req, res) => {
+    try {
+      const { command, timeout } = req.body;
+      if (!command) {
+        return res.status(400).json({ error: 'Command required' });
+      }
+
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand(command, timeout);
+      res.json({ response });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/configure:
+   *   post:
+   *     summary: Configure specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               channel: { type: number }
+   *               data_rate: { type: string }
+   *               preamble_len: { type: number }
+   *               payload_len: { type: number }
+   *               tx_power_idx: { type: number }
+   *               pkt_rate_hz: { type: number }
+   *     responses:
+   *       200:
+   *         description: Configuration result
+   */
+  router.post('/nodes/:nodeId/configure', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const result = await node.configure(req.body);
+      res.json({ success: result });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/stats:
+   *   get:
+   *     summary: Get stats from specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node statistics
+   */
+  router.get('/nodes/:nodeId/stats', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const stats = await node.getStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 }
 
