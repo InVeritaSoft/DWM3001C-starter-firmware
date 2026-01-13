@@ -1,0 +1,52 @@
+# Test command on serial port
+# Usage: .\test-command.ps1 COM11 NODE_TYPE
+
+param(
+    [string]$ComPort = "COM11",
+    [string]$Command = "PNG"
+)
+
+try {
+    $port = New-Object System.IO.Ports.SerialPort $ComPort, 115200, "None", 8, "One"
+    $port.ReadTimeout = 2000
+    $port.WriteTimeout = 2000
+    $port.Open()
+    
+    Write-Host "Connected to $ComPort" -ForegroundColor Green
+    
+    $port.DiscardInBuffer()
+    $port.DiscardOutBuffer()
+    Start-Sleep -Milliseconds 100
+    
+    Write-Host "Sending: $Command" -ForegroundColor Yellow
+    $port.WriteLine($Command)
+    
+    Start-Sleep -Milliseconds 500
+    
+    $response = ""
+    $timeout = 100
+    while ($timeout -gt 0) {
+        if ($port.BytesToRead -gt 0) {
+            $response += $port.ReadExisting()
+            if ($response -match "`r`n|`n" -and $response.Length -gt 2) {
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 20
+        $timeout--
+    }
+    
+    if ($response) {
+        $trimmed = $response.Trim()
+        $color = if ($trimmed -match "^OK") { "Green" } else { "Yellow" }
+        Write-Host "Response: $trimmed" -ForegroundColor $color
+    } else {
+        Write-Host "No response received" -ForegroundColor Red
+    }
+    
+    $port.Close()
+    
+} catch {
+    Write-Host "Error: $_" -ForegroundColor Red
+    exit 1
+}

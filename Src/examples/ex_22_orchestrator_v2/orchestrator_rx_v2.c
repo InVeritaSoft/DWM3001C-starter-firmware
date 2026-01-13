@@ -347,7 +347,7 @@ static void uart_init(void)
         .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = 30801920  // 115200 baud
+        .baud_rate = UART_BAUDRATE_BAUDRATE_Baud115200  // 115200 baud - using SDK constant
     };
 
     // #region agent log
@@ -675,9 +675,9 @@ static void parse_command(char *cmd)
         test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;  // Return immediately after sending response
     }
-    else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
+    else if (strcmp(cmd_upper, "NODE_TYPE") == 0 || strcmp(cmd_upper, "NT") == 0)
     {
-        send_response("OK NODE_TYPE=RX_V2");
+        send_response("OK RX_V2");
     }
     else if (strncmp(cmd_upper, "CFG ", 4) == 0 || strncmp(cmd_upper, "SET_CONFIG ", 11) == 0)
     {
@@ -686,12 +686,20 @@ static void parse_command(char *cmd)
         else params = "";
         parse_set_config(params);
     }
-    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0)
+    else if (strcmp(cmd_upper, "INIT") == 0)
+    {
+        // Initialize with default configuration
+        configure_uwb();
+        g_config.configured = 1;
+        send_response("OK INIT");
+    }
+    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0 || strcmp(cmd_upper, "START") == 0)
     {
         if (!g_config.configured)
         {
-            send_response("ERR NOT_CONFIGURED");
-            return;
+            // Auto-configure with defaults if not configured
+            configure_uwb();
+            g_config.configured = 1;
         }
         
         g_test_running = 1;

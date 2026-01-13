@@ -70,7 +70,9 @@ Purpose : DWM3001C build main entry point for simple exmaples.
  */
 void test_run_info(unsigned char *data)
 {
-    printf("%s\n", data);
+    // Output to RTT only, not to UART (to avoid flooding RS-485 line)
+    SEGGER_RTT_WriteString(0, (const char *)data);
+    SEGGER_RTT_WriteString(0, "\r\n");
 }
 
 int main(void)
@@ -150,8 +152,8 @@ int main(void)
     // extern int simple_aes(void); simple_aes();
     // extern int orchestrator_tx(void); orchestrator_tx();
     // extern int orchestrator_rx(void); orchestrator_rx();
-    extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
-    // extern int orchestrator_rx_v2(void); orchestrator_rx_v2();
+    // extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
+    extern int orchestrator_rx_v2(void); orchestrator_rx_v2();
     
     // extern int simple_tx(void); simple_tx();
 

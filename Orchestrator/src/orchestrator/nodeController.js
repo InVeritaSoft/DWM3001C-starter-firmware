@@ -259,24 +259,14 @@ export class NodeController extends EventEmitter {
         throw new Error("Cannot configure while test is running");
       }
 
-      // Verify node is connected and responding before attempting configuration
+      // Try to open connection if not already open
       if (!this.isConnected()) {
-        const errorMsg = `Node ${this.nodeId} is not connected. Call connect() first.`;
-        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-
-      // Quick connectivity check - send PING to verify firmware is responding
-      console.log(`[NodeController ${this.nodeId}] Sending PING to verify connectivity...`);
-      try {
-        await this.rs485Comm.ping();
-        console.log(`[NodeController ${this.nodeId}] ✓ PING successful`);
-      } catch (pingError) {
-        const errorMsg = `Node ${this.nodeId} is not responding to commands. ` +
-          `Port is open but firmware may not be running or RS-485 communication is failing. ` +
-          `Original error: ${pingError.message}`;
-        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
-        throw new Error(errorMsg);
+        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        try {
+          await this.connect();
+        } catch (connectError) {
+          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+        }
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending configuration...`);
@@ -312,19 +302,14 @@ export class NodeController extends EventEmitter {
     try {
       console.log(`[NodeController ${this.nodeId}] startTest() called - state: ${this.state}, connected: ${this.isConnected()}`);
       
-      if (
-        this.state !== NodeState.CONFIGURED &&
-        this.state !== NodeState.STOPPED
-      ) {
-        const errorMsg = `Cannot start test from state: ${this.state} (must be CONFIGURED or STOPPED)`;
-        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
-
+      // Try to open connection if not already open
       if (!this.isConnected()) {
-        const errorMsg = `Node ${this.nodeId} is not connected`;
-        console.error(`[NodeController ${this.nodeId}] ${errorMsg}`);
-        throw new Error(errorMsg);
+        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        try {
+          await this.connect();
+        } catch (connectError) {
+          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+        }
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending START command...`);
@@ -357,9 +342,14 @@ export class NodeController extends EventEmitter {
    */
   async stopTest() {
     try {
-      if (this.state !== NodeState.RUNNING) {
-        // Allow stopping from any state
-        return true;
+      // Try to open connection if not already open
+      if (!this.isConnected()) {
+        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        try {
+          await this.connect();
+        } catch (connectError) {
+          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+        }
       }
 
       const response = await this.rs485Comm.stopTest();
@@ -384,6 +374,16 @@ export class NodeController extends EventEmitter {
    */
   async getStats() {
     try {
+      // Try to open connection if not already open
+      if (!this.isConnected()) {
+        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        try {
+          await this.connect();
+        } catch (connectError) {
+          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+        }
+      }
+
       const response = await this.rs485Comm.getStats();
       if (response.startsWith("OK STATS")) {
         this.stats = this.parseStats(response);
@@ -432,6 +432,28 @@ export class NodeController extends EventEmitter {
       }
     }
 
+    // Map firmware v2 format to expected format
+    // Firmware sends: sent=, attempted=, errors=, timeouts=, last_err=, frame_dur=
+    // But parser expects: total_sent, total_attempted, tx_errors, tx_timeouts, last_error, frame_duration_us
+    if (stats.sent !== undefined && stats.total_sent === undefined) {
+      stats.total_sent = stats.sent;
+    }
+    if (stats.attempted !== undefined && stats.total_attempted === undefined) {
+      stats.total_attempted = stats.attempted;
+    }
+    if (stats.errors !== undefined && stats.tx_errors === undefined) {
+      stats.tx_errors = stats.errors;
+    }
+    if (stats.timeouts !== undefined && stats.tx_timeouts === undefined) {
+      stats.tx_timeouts = stats.timeouts;
+    }
+    if (stats.last_err !== undefined && stats.last_error === undefined) {
+      stats.last_error = stats.last_err;
+    }
+    if (stats.frame_dur !== undefined && stats.frame_duration_us === undefined) {
+      stats.frame_duration_us = stats.frame_dur;
+    }
+
     // #region agent log - parseStats parsed keys
     fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
       method: "POST",
@@ -455,9 +477,15 @@ export class NodeController extends EventEmitter {
 
     // Node A (TX) stats
     if (this.nodeId === "A") {
+      // Firmware v2 sends: sent=, attempted=, errors=, timeouts=, last_err=, frame_dur=
+      // Map firmware format to expected format
       const result = {
-        total_sent: stats.total_sent || 0,
-        last_error: stats.last_error || 0,
+        total_sent: stats.total_sent || stats.sent || 0,
+        total_attempted: stats.total_attempted || stats.attempted || 0,
+        tx_errors: stats.tx_errors || stats.errors || 0,
+        tx_timeouts: stats.tx_timeouts || stats.timeouts || 0,
+        last_error: stats.last_error || stats.last_err || 0,
+        frame_duration_us: stats.frame_duration_us || stats.frame_dur || 0,
       };
       // #region agent log - parseStats Node A result
       fetch(
@@ -518,13 +546,22 @@ export class NodeController extends EventEmitter {
     }
 
     // Normal Node B (RX) stats
+    // Firmware v2 sends: rx=, lost=, crc_err=, phy_err=, timeout=, overrun=, rssi_min=, rssi_max=, pre_q_min=, pre_q_max=
+    // Map to expected format
     const result = {
-      total_rx: stats.total_rx || 0,
-      lost_pkts: stats.lost_pkts || 0,
+      total_rx: stats.total_rx || stats.rx || 0,
+      lost_pkts: stats.lost_pkts || stats.lost || 0,
       crc_err: stats.crc_err || 0,
-      rssi_avg_dbm: stats.rssi_avg || 0,
+      phy_err: stats.phy_err || 0,
+      rx_timeout: stats.rx_timeout || stats.timeout || 0,
+      rx_overrun: stats.rx_overrun || stats.overrun || 0,
+      rssi_avg_dbm: stats.rssi_avg || 0, // Calculated from rssi_min/rssi_max if needed
+      rssi_min: stats.rssi_min || 0,
+      rssi_max: stats.rssi_max || 0,
       snr_avg_db: stats.snr_avg || 0,
       preamble_q_avg: stats.pre_q_avg || 0,
+      pre_q_min: stats.pre_q_min || 0,
+      pre_q_max: stats.pre_q_max || 0,
     };
     // #region agent log - parseStats Node B normal result
     fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {

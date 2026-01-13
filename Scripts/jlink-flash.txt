@@ -1,0 +1,9 @@
+si 1
+speed 4000
+connect
+halt
+erase
+loadfile /project/Output/Common/Exe/dw3000_api.hex
+reset
+go
+exit

@@ -188,8 +188,15 @@ class WebServer {
    */
   async start() {
     const webConfig = this.config.getWebConfig();
-    const port = webConfig.port || 5000;
+    // IMPORTANT: Backend API must run on port 5000
+    // Frontend dev server runs on port 3000 and proxies /api requests to port 5000
+    // This separation allows monitoring (frontend on 3000) and commands (API on 5000) to work together
+    // Always use 5000 for backend API, regardless of PORT env var (which might be 3000 for frontend)
+    const port = 5000; // Force port 5000 for backend API
     const host = webConfig.host || "0.0.0.0";
+    
+    console.log(`[Server] Backend API server will run on port ${port}`);
+    console.log(`[Server] Frontend dev server should run on port 3000 and proxy /api to port ${port}`);
 
     // Connect to nodes
     try {

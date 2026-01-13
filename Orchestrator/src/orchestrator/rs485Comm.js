@@ -66,31 +66,6 @@ export class RS485Comm extends EventEmitter {
       this.parser.on("data", (data) => {
         const trimmed = data.toString().trim();
 
-        // #region agent log - RS485 data received
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:parser",
-              message: "RS485 data received",
-              data: {
-                raw: data.toString(),
-                trimmed,
-                hasResponseHandler: !!this.responseHandler,
-                pendingCommandsCount: this.pendingCommands.size,
-                pendingCommandIds: Array.from(this.pendingCommands.keys()),
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "B",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
-
         // Always log RX for debugging (not just when DEBUG_RS485 is set)
         console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
         console.log(
@@ -112,25 +87,6 @@ export class RS485Comm extends EventEmitter {
         const hex = data.toString("hex");
         const ascii = data.toString("ascii").replace(/[^\x20-\x7E]/g, ".");
         console.log(`[RS485 RAW] ${this.port}: Hex=${hex}, ASCII="${ascii}"`);
-
-        // #region agent log - RS485 raw data received
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:rawData",
-              message: "RS485 raw data received",
-              data: { port: this.port, hex, ascii, length: data.length },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "B",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
 
         // Detect potential corruption patterns
         if (hex.length > 10) {
@@ -225,8 +181,26 @@ export class RS485Comm extends EventEmitter {
         this.serialPort.open();
       });
 
-      // Wait for firmware initialization (firmware needs time to start)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for firmware initialization (firmware needs time to start after port open)
+      // J-Link CDC port opening causes board reset - need longer delay
+      console.log(`[RS485] Waiting 5 seconds for firmware initialization...`);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      
+      // Flush any garbage data in the buffer from the reset
+      console.log(`[RS485] Flushing input buffer...`);
+      await new Promise((resolve) => {
+        this.serialPort.flush(() => {
+          // Read and discard any pending data
+          const garbage = this.serialPort.read();
+          if (garbage) {
+            console.log(`[RS485] Discarded ${garbage.length} bytes of startup garbage`);
+          }
+          resolve();
+        });
+      });
+      
+      // Small delay after flush
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
       this.emit("error", error);
       throw error;
@@ -271,26 +245,16 @@ export class RS485Comm extends EventEmitter {
       }),
     }).catch(() => {});
     // #endregion
+    // Auto-open port if not already open (allow sending commands without connection check)
     if (!this.isOpen) {
-      // #region agent log - sendCommand port not open
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:sendCommand",
-            message: "sendCommand port not open",
-            data: { isOpen: this.isOpen },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "C",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
-      throw new Error(`Port ${this.port} is not open`);
+      console.log(`[RS485] Port ${this.port} not open, attempting to open automatically...`);
+      try {
+        await this.open();
+        console.log(`[RS485] Port ${this.port} opened successfully`);
+      } catch (openError) {
+        console.warn(`[RS485] Failed to auto-open port ${this.port}: ${openError.message}, continuing anyway...`);
+        // Continue anyway - let the command attempt to send
+      }
     }
 
     const commandId = ++this.commandId;

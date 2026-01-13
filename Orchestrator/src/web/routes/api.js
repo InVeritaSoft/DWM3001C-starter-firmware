@@ -378,6 +378,146 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
     }
   });
 
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/start:
+   *   post:
+   *     summary: Start test on specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node started
+   */
+  router.post('/nodes/:nodeId/start', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const result = await node.startTest();
+      res.json({ success: result });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/stop:
+   *   post:
+   *     summary: Stop test on specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node stopped
+   */
+  router.post('/nodes/:nodeId/stop', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const result = await node.stopTest();
+      res.json({ success: result });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/init:
+   *   post:
+   *     summary: Initialize specific node with defaults
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node initialized
+   */
+  router.post('/nodes/:nodeId/init', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand('INIT');
+      res.json({ response });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/reset-stats:
+   *   post:
+   *     summary: Reset statistics on specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Statistics reset
+   */
+  router.post('/nodes/:nodeId/reset-stats', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand('RST');
+      res.json({ response });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/test/report:
+   *   post:
+   *     summary: Generate test report after both nodes stop
+   *     tags: [Test Control]
+   *     responses:
+   *       200:
+   *         description: Test report generated
+   */
+  router.post('/test/report', async (req, res) => {
+    try {
+      // Get stats from both nodes
+      const [statsA, statsB] = await Promise.allSettled([
+        nodeA.getStats().catch(() => null),
+        nodeB.getStats().catch(() => null)
+      ]);
+
+      const report = {
+        timestamp: new Date().toISOString(),
+        nodeA: {
+          stats: statsA.status === 'fulfilled' ? statsA.value : null,
+          state: nodeA.getState(),
+          connected: nodeA.isConnected(),
+          lastError: nodeA.getLastError()
+        },
+        nodeB: {
+          stats: statsB.status === 'fulfilled' ? statsB.value : null,
+          state: nodeB.getState(),
+          connected: nodeB.isConnected(),
+          lastError: nodeB.getLastError()
+        }
+      };
+
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 }
 

@@ -86,22 +86,48 @@ export function getConfig() {
     // Build structured config object
     const config = {};
 
+    // Communication mode: "jlink" (J-Link CDC UART) or "rs485" (CH340 USB-to-RS485)
+    // Defaults to "jlink" for built-in USB UART (more reliable, no external wiring)
+    // Check process.env first (allows runtime override), then .env file
+    const commMode = (process.env.COMM_MODE || envVars.COMM_MODE || "jlink").toLowerCase();
+    
+    // Define port mappings for each mode
+    const portMappings = {
+      jlink: {
+        // J-Link CDC UART ports (built-in, no external wiring)
+        node_a: envVars.JLINK_NODE_A_PORT || "COM15",
+        node_b: envVars.JLINK_NODE_B_PORT || "COM11",
+      },
+      rs485: {
+        // CH340 USB-to-RS485 ports (external adapters via RJ45)
+        node_a: envVars.RS485_NODE_A_PORT || "COM20",
+        node_b: envVars.RS485_NODE_B_PORT || "COM19",
+      }
+    };
+    
+    // Select ports based on comm mode
+    const selectedPorts = portMappings[commMode] || portMappings.jlink;
+    
     // Serial configuration
-    if (envVars.SERIAL_NODE_A_PORT || envVars.NODE_A_PORT) {
-      // Parse timeout as float (supports values like 2.0)
-      const timeoutValue = envVars.SERIAL_TIMEOUT || envVars.TIMEOUT || "5";
-      const timeout = parseFloat(timeoutValue);
+    // Parse timeout as float (supports values like 2.0)
+    const timeoutValue = envVars.SERIAL_TIMEOUT || envVars.TIMEOUT || "5";
+    const timeout = parseFloat(timeoutValue);
 
-      config.serial = {
-        node_a_port: envVars.SERIAL_NODE_A_PORT || envVars.NODE_A_PORT,
-        node_b_port: envVars.SERIAL_NODE_B_PORT || envVars.NODE_B_PORT,
-        baudrate: parseInt(
-          envVars.SERIAL_BAUDRATE || envVars.BAUDRATE || "115200",
-          10
-        ),
-        timeout: isNaN(timeout) ? 5 : timeout,
-      };
-    }
+    config.serial = {
+      // Allow explicit override via NODE_A_PORT/NODE_B_PORT, otherwise use mode-based selection
+      node_a_port: envVars.SERIAL_NODE_A_PORT || envVars.NODE_A_PORT || selectedPorts.node_a,
+      node_b_port: envVars.SERIAL_NODE_B_PORT || envVars.NODE_B_PORT || selectedPorts.node_b,
+      baudrate: parseInt(
+        envVars.SERIAL_BAUDRATE || envVars.BAUDRATE || "115200",
+        10
+      ),
+      timeout: isNaN(timeout) ? 5 : timeout,
+      comm_mode: commMode,
+    };
+    
+    console.log(`[Config] Communication mode: ${commMode.toUpperCase()}`);
+    console.log(`[Config] Node A port: ${config.serial.node_a_port}`);
+    console.log(`[Config] Node B port: ${config.serial.node_b_port}`);
 
     // Test configuration
     if (

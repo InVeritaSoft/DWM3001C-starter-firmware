@@ -63,6 +63,78 @@ export const apiClient = {
     const response = await api.post('/test/stop');
     return response.data;
   },
+
+  /**
+   * Send command to specific node
+   */
+  async sendNodeCommand(nodeId, command, timeout) {
+    const response = await api.post(`/nodes/${nodeId}/send`, { command, timeout });
+    return response.data;
+  },
+
+  /**
+   * Start test on specific node
+   */
+  async startNode(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/start`);
+    return response.data;
+  },
+
+  /**
+   * Stop test on specific node
+   */
+  async stopNode(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/stop`);
+    return response.data;
+  },
+
+  /**
+   * Get stats from specific node
+   */
+  async getNodeStats(nodeId) {
+    const response = await api.get(`/nodes/${nodeId}/stats`);
+    return response.data;
+  },
+
+  /**
+   * Initialize specific node
+   */
+  async initNode(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/init`);
+    return response.data;
+  },
+
+  /**
+   * Reset stats on specific node
+   */
+  async resetNodeStats(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/reset-stats`);
+    return response.data;
+  },
+
+  /**
+   * Configure specific node
+   */
+  async configureNode(nodeId, config) {
+    const response = await api.post(`/nodes/${nodeId}/configure`, config);
+    return response.data;
+  },
+
+  /**
+   * Ping specific node
+   */
+  async pingNode(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/ping`);
+    return response.data;
+  },
+
+  /**
+   * Generate test report
+   */
+  async generateReport() {
+    const response = await api.post('/test/report');
+    return response.data;
+  },
 };
 
 export default apiClient;

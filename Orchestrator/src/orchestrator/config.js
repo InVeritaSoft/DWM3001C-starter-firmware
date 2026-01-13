@@ -74,12 +74,20 @@ export class Config {
    * @returns {Object}
    */
   getDefaultSettings() {
+    // Communication mode: "jlink" (J-Link CDC UART) or "rs485" (CH340 USB-to-RS485)
+    const commMode = (process.env.COMM_MODE || "jlink").toLowerCase();
+    
+    // Default ports based on comm mode
+    const defaultPorts = commMode === "rs485" 
+      ? { node_a: "COM20", node_b: "COM19" }  // CH340 RS-485 adapters
+      : { node_a: "COM15", node_b: "COM11" }; // J-Link CDC UART
+    
     return {
       serial: {
         node_a_port:
-          process.env.SERIAL_NODE_A_PORT || process.env.NODE_A_PORT || "COM3",
+          process.env.SERIAL_NODE_A_PORT || process.env.NODE_A_PORT || defaultPorts.node_a,
         node_b_port:
-          process.env.SERIAL_NODE_B_PORT || process.env.NODE_B_PORT || "COM4",
+          process.env.SERIAL_NODE_B_PORT || process.env.NODE_B_PORT || defaultPorts.node_b,
         baudrate: parseInt(
           process.env.SERIAL_BAUDRATE || process.env.BAUDRATE || "115200",
           10
@@ -88,6 +96,7 @@ export class Config {
           process.env.SERIAL_TIMEOUT || process.env.TIMEOUT || "5",
           10
         ),
+        comm_mode: commMode,
       },
       test: {
         poll_interval_seconds: 2,
@@ -100,6 +109,7 @@ export class Config {
         pkt_rate_hz: 100,
       },
       web: {
+        // Force port 5000 for backend API (frontend dev server uses 3000 and proxies to 5000)
         port: parseInt(process.env.WEB_PORT || process.env.PORT || "5000", 10),
         host: process.env.WEB_HOST || process.env.HOST || "0.0.0.0",
       },

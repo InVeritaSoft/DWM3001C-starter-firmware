@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRealtimeData } from "../hooks/useRealtimeData";
 import apiClient from "../services/api";
 import NodeStatus from "./NodeStatus";
+import NodeControls from "./NodeControls";
 import MetricsChart from "./MetricsChart";
 import TestConfig from "./TestConfig";
 import TestReport from "./TestReport";
@@ -16,6 +17,9 @@ export default function Dashboard() {
   const [testPlan, setTestPlan] = useState(null);
   const [currentTest, setCurrentTest] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const [generatedReport, setGeneratedReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const prevStatesRef = useRef({ nodeA: null, nodeB: null });
 
   useEffect(() => {
     // Load test plan
@@ -43,12 +47,52 @@ export default function Dashboard() {
     }
   }, [stats]);
 
+  // Monitor node states and generate report when both nodes stop
+  useEffect(() => {
+    const nodeAState = status?.nodeA?.state;
+    const nodeBState = status?.nodeB?.state;
+    const prevNodeAState = prevStatesRef.current.nodeA;
+    const prevNodeBState = prevStatesRef.current.nodeB;
+
+    // Check if both nodes just stopped (were running, now stopped)
+    const bothJustStopped = 
+      (prevNodeAState === 'RUNNING' && nodeAState === 'STOPPED') &&
+      (prevNodeBState === 'RUNNING' && nodeBState === 'STOPPED');
+
+    if (bothJustStopped) {
+      handleGenerateReport();
+    }
+
+    // Update previous states
+    prevStatesRef.current = {
+      nodeA: nodeAState,
+      nodeB: nodeBState
+    };
+  }, [status?.nodeA?.state, status?.nodeB?.state]);
+
   const handleStartTest = async () => {
-    if (!currentTest) return;
     try {
-      // API returns immediately, test starts in background
-      // UI will update via Socket.io 'testStarted' event
-      await apiClient.startTest(currentTest);
+      // Send START command to both Node A and Node B simultaneously
+      console.log("Starting test on both nodes...");
+      const [resultA, resultB] = await Promise.allSettled([
+        apiClient.startNode("A"),
+        apiClient.startNode("B")
+      ]);
+
+      const errors = [];
+      if (resultA.status === 'rejected') {
+        errors.push(`Node A: ${resultA.reason?.message || resultA.reason}`);
+      }
+      if (resultB.status === 'rejected') {
+        errors.push(`Node B: ${resultB.reason?.message || resultB.reason}`);
+      }
+
+      if (errors.length > 0) {
+        console.error("Failed to start test on some nodes:", errors);
+        alert(`Failed to start test:\n${errors.join('\n')}`);
+      } else {
+        console.log("✓ Test started on both nodes");
+      }
     } catch (error) {
       console.error("Failed to start test:", error);
       alert(`Failed to start test: ${error.message || error}`);
@@ -57,12 +101,51 @@ export default function Dashboard() {
 
   const handleStopTest = async () => {
     try {
-      // API returns immediately, test stops in background
-      // UI will update via Socket.io 'testStopped' event
-      await apiClient.stopTest();
+      // Send STOP command to both Node A and Node B simultaneously
+      console.log("Stopping test on both nodes...");
+      const [resultA, resultB] = await Promise.allSettled([
+        apiClient.stopNode("A"),
+        apiClient.stopNode("B")
+      ]);
+
+      const errors = [];
+      if (resultA.status === 'rejected') {
+        errors.push(`Node A: ${resultA.reason?.message || resultA.reason}`);
+      }
+      if (resultB.status === 'rejected') {
+        errors.push(`Node B: ${resultB.reason?.message || resultB.reason}`);
+      }
+
+      if (errors.length > 0) {
+        console.error("Failed to stop test on some nodes:", errors);
+        alert(`Failed to stop test:\n${errors.join('\n')}`);
+      } else {
+        console.log("✓ Test stopped on both nodes");
+      }
     } catch (error) {
       console.error("Failed to stop test:", error);
       alert(`Failed to stop test: ${error.message || error}`);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    setReportLoading(true);
+    try {
+      const report = await apiClient.generateReport();
+      setGeneratedReport(report);
+    } catch (error) {
+      console.error("Failed to generate report:", error);
+      alert(`Failed to generate report: ${error.message || error}`);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleCommandSent = (nodeId, command, result) => {
+    console.log(`Node ${nodeId} command ${command} sent:`, result);
+    // Optionally refresh stats after command
+    if (command === 'STAT') {
+      // Stats will be updated via realtime data hook
     }
   };
 
@@ -92,11 +175,21 @@ export default function Dashboard() {
             connected={status?.nodeA?.connected || false}
             lastError={status?.nodeA?.lastError}
           />
+          <NodeControls
+            nodeId="A"
+            connected={status?.nodeA?.connected || false}
+            onCommandSent={handleCommandSent}
+          />
           <NodeStatus
             nodeId="B"
             state={status?.nodeB?.state || "IDLE"}
             connected={status?.nodeB?.connected || false}
             lastError={status?.nodeB?.lastError}
+          />
+          <NodeControls
+            nodeId="B"
+            connected={status?.nodeB?.connected || false}
+            onCommandSent={handleCommandSent}
           />
         </div>
 
@@ -104,23 +197,29 @@ export default function Dashboard() {
           <TestConfig test={currentTest} />
           <div className="test-controls">
             <h3>Test Controls</h3>
-            {!testRunning ? (
-              <button
-                className="btn btn-primary"
-                onClick={handleStartTest}
-                disabled={!currentTest || !connected}
-              >
-                Start Test
-              </button>
-            ) : (
-              <button
-                className="btn btn-danger"
-                onClick={handleStopTest}
-                disabled={!connected}
-              >
-                Stop Test
-              </button>
-            )}
+            <button
+              className="btn btn-primary"
+              onClick={handleStartTest}
+              disabled={testRunning}
+              style={{ marginBottom: '0.5rem' }}
+            >
+              Start Test (Both Nodes)
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={handleStopTest}
+              disabled={!testRunning}
+            >
+              Stop Test (Both Nodes)
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleGenerateReport}
+              disabled={reportLoading}
+              style={{ marginTop: '0.5rem', backgroundColor: '#9e9e9e' }}
+            >
+              {reportLoading ? 'Generating...' : 'Generate Report'}
+            </button>
           </div>
         </div>
       </div>
@@ -176,6 +275,26 @@ export default function Dashboard() {
       {testReport && (
         <div className="test-report-section">
           <TestReport report={testReport} />
+        </div>
+      )}
+
+      {generatedReport && (
+        <div className="test-report-section">
+          <h3>Generated Test Report</h3>
+          <div className="report-content">
+            <div className="report-section">
+              <h4>Node A</h4>
+              <pre>{JSON.stringify(generatedReport.nodeA, null, 2)}</pre>
+            </div>
+            <div className="report-section">
+              <h4>Node B</h4>
+              <pre>{JSON.stringify(generatedReport.nodeB, null, 2)}</pre>
+            </div>
+            <div className="report-section">
+              <h4>Timestamp</h4>
+              <p>{new Date(generatedReport.timestamp).toLocaleString()}</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
