@@ -5,8 +5,8 @@ serial:
   # Serial port configuration for RS-485 communication
   # On Windows: COM3, COM4, etc.
   # On Linux: /dev/ttyUSB0, /dev/ttyUSB1, etc.
-  node_a_port: COM17
-  node_b_port: COM18
+  node_a_port: /dev/ttyUSB0
+  node_b_port: /dev/ttyUSB1
   baudrate: 115200
   timeout: 5 # seconds
 

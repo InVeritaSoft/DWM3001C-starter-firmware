@@ -2,23 +2,23 @@
 # Python 3.9+
 
 # Web Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-socketio==5.11.0
-python-engineio==4.9.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-socketio>=5.11.0
+python-engineio>=4.9.0
 
 # Serial Communication
-pyserial==3.5
-pyserial-asyncio==0.6
+pyserial>=3.5
+pyserial-asyncio>=0.6
 
 # Data Processing
-pyyaml==6.0.1
-python-multipart==0.0.6
-pandas==2.2.0
+pyyaml>=6.0.2
+python-multipart>=0.0.6
+pandas>=2.0.0
 
-# CORS
-fastapi-cors==0.0.6
+# CORS (handled by FastAPI, no separate package needed)
+# fastapi-cors is not a real package - CORS is built into FastAPI
 
 # Utilities
-python-dotenv==1.0.0
-aiofiles==23.2.1
+python-dotenv>=1.0.0
+aiofiles>=23.2.1

@@ -36,6 +36,8 @@ class RS485Comm:
     async def open(self) -> None:
         """Open serial port connection"""
         try:
+            print(f"[RS485] Opening {self.port} at {self.baudrate} baud...")
+            
             # Create serial port
             self.serial_port = serial.Serial(
                 port=self.port,
@@ -49,7 +51,7 @@ class RS485Comm:
             )
             
             self.is_open = True
-            print(f"[RS485] Port {self.port} opened at {self.baudrate} baud - ready to receive data")
+            print(f"[RS485] {self.port} opened successfully")
             
             # Start background read task
             self._read_task = asyncio.create_task(self._read_loop())
@@ -58,6 +60,7 @@ class RS485Comm:
             await asyncio.sleep(2.0)
             
         except Exception as error:
+            print(f"[RS485 ERROR] {self.port}: Failed to open: {error}")
             raise Exception(f"Failed to open port {self.port}: {error}")
     
     async def close(self) -> None:
@@ -77,42 +80,69 @@ class RS485Comm:
     async def _read_loop(self) -> None:
         """Background task to read serial data"""
         buffer = b""
+        import time
+        
+        print(f"[RS485 READ LOOP] {self.port}: Read loop started")
         
         while self.is_open:
             try:
-                if self.serial_port and self.serial_port.in_waiting > 0:
-                    # Read available data
-                    data = self.serial_port.read(self.serial_port.in_waiting)
-                    
-                    # Log raw data
-                    hex_str = data.hex()
-                    ascii_str = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data)
-                    print(f"[RS485 RAW] {self.port}: Hex={hex_str}, ASCII=\"{ascii_str}\"")
-                    
-                    buffer += data
-                    
-                    # Process complete lines (ending with \r\n)
-                    while b'\n' in buffer:
-                        line, buffer = buffer.split(b'\n', 1)
-                        line = line.rstrip(b'\r')
+                if self.serial_port:
+                    # Check if data is available first (more efficient)
+                    if self.serial_port.in_waiting > 0:
+                        # Read available data
+                        data = self.serial_port.read(self.serial_port.in_waiting)
+                        timestamp = time.time()
                         
-                        if line:
-                            decoded = line.decode('ascii', errors='replace').strip()
-                            print(f"[RS485 RX] {self.port}: {decoded}")
-                            print(f"[RS485 RX] {self.port}: Hex: {line.hex()}")
-                            print(f"[RS485 RX] {self.port}: Pending commands: {len(self.pending_commands)}, IDs: {list(self.pending_commands.keys())}")
+                        if len(data) > 0:
+                            # Log raw data - CAPTURE EVERYTHING
+                            hex_str = data.hex()
+                            ascii_str = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data)
+                            print(f"[RS485 RAW @{timestamp:.3f}] {self.port}: {len(data)} bytes - Hex={hex_str}, ASCII=\"{ascii_str}\"")
                             
-                            await self._handle_response(decoded)
+                            buffer += data
+                            
+                            # Process complete lines (ending with \r\n)
+                            while b'\n' in buffer:
+                                line, buffer = buffer.split(b'\n', 1)
+                                line = line.rstrip(b'\r')
+                                
+                                if line:
+                                    decoded = line.decode('ascii', errors='replace').strip()
+                                    print(f"[RS485 LINE @{timestamp:.3f}] {self.port}: \"{decoded}\"")
+                                    print(f"[RS485 LINE @{timestamp:.3f}] {self.port}: Hex: {line.hex()}, Pending: {len(self.pending_commands)}")
+                                    
+                                    await self._handle_response(decoded)
+                            
+                            # Log incomplete line if buffer has data
+                            if len(buffer) > 0 and b'\n' not in buffer:
+                                buffer_hex = buffer.hex()
+                                buffer_ascii = ''.join(chr(b) if 32 <= b < 127 else '.' for b in buffer)
+                                print(f"[RS485 PARTIAL @{timestamp:.3f}] {self.port}: Incomplete ({len(buffer)} bytes): {buffer_hex}")
+                    else:
+                        # No data available - sleep longer to reduce CPU usage
+                        await asyncio.sleep(0.1)  # 100ms when idle
+                        continue
+                else:
+                    await asyncio.sleep(0.1)
                 
-                # Small delay to prevent CPU spinning
+                # Small delay when processing data
                 await asyncio.sleep(0.01)
                 
+            except serial.SerialException as e:
+                print(f"[RS485 ERROR] {self.port}: Serial exception: {e}")
+                await asyncio.sleep(0.1)
             except Exception as e:
+                import traceback
                 print(f"[RS485 ERROR] {self.port}: Read loop error: {e}")
                 await asyncio.sleep(0.1)
+        
+        print(f"[RS485 READ LOOP] {self.port}: Read loop stopped")
     
     async def _handle_response(self, data: str) -> None:
         """Handle incoming response"""
+        import time
+        timestamp = time.time()
+        
         # Skip empty lines
         if not data:
             return
@@ -150,6 +180,9 @@ class RS485Comm:
                 
                 # Remove from pending
                 del self.pending_commands[command_id]
+                
+                # Log successful response match
+                print(f"[RS485 OK] {self.port}: Command \"{pending.command}\" → Response: {data}")
                 
                 # Resolve or reject
                 if data.upper().startswith('OK'):
