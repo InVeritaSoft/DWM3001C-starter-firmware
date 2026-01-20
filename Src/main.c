@@ -152,8 +152,11 @@ int main(void)
     // extern int simple_aes(void); simple_aes();
     // extern int orchestrator_tx(void); orchestrator_tx();
     // extern int orchestrator_rx(void); orchestrator_rx();
-    // extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
+#if defined(TEST_ORCHESTRATOR_TX_V2)
+    extern int orchestrator_tx_v2(void); orchestrator_tx_v2();
+#elif defined(TEST_ORCHESTRATOR_RX_V2)
     extern int orchestrator_rx_v2(void); orchestrator_rx_v2();
+#endif
     
     // extern int simple_tx(void); simple_tx();
 

@@ -89,7 +89,7 @@ export class Config {
         node_b_port:
           process.env.SERIAL_NODE_B_PORT || process.env.NODE_B_PORT || defaultPorts.node_b,
         baudrate: parseInt(
-          process.env.SERIAL_BAUDRATE || process.env.BAUDRATE || "115200",
+          process.env.SERIAL_BAUDRATE || process.env.BAUDRATE || "57600",
           10
         ),
         timeout: parseInt(

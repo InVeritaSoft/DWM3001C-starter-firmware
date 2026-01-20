@@ -117,10 +117,10 @@ export function getConfig() {
       // Allow explicit override via NODE_A_PORT/NODE_B_PORT, otherwise use mode-based selection
       node_a_port: envVars.SERIAL_NODE_A_PORT || envVars.NODE_A_PORT || selectedPorts.node_a,
       node_b_port: envVars.SERIAL_NODE_B_PORT || envVars.NODE_B_PORT || selectedPorts.node_b,
-      baudrate: parseInt(
-        envVars.SERIAL_BAUDRATE || envVars.BAUDRATE || "115200",
-        10
-      ),
+        baudrate: parseInt(
+          envVars.SERIAL_BAUDRATE || envVars.BAUDRATE || "57600",
+          10
+        ),
       timeout: isNaN(timeout) ? 5 : timeout,
       comm_mode: commMode,
     };

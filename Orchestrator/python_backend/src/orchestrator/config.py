@@ -87,7 +87,7 @@ class Config:
             'serial': {
                 'node_a_port': os.getenv('SERIAL_NODE_A_PORT', os.getenv('NODE_A_PORT', 'COM3')),
                 'node_b_port': os.getenv('SERIAL_NODE_B_PORT', os.getenv('NODE_B_PORT', 'COM4')),
-                'baudrate': int(os.getenv('SERIAL_BAUDRATE', os.getenv('BAUDRATE', '115200'))),
+                'baudrate': int(os.getenv('SERIAL_BAUDRATE', os.getenv('BAUDRATE', '57600'))),
                 'timeout': int(os.getenv('SERIAL_TIMEOUT', os.getenv('TIMEOUT', '5'))),
             },
             'test': {
