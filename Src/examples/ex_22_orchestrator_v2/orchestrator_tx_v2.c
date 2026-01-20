@@ -322,7 +322,7 @@ static void uart_init(void)
         .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = UART_BAUDRATE_BAUDRATE_Baud115200  // 115200 baud - using SDK constant
+        .baud_rate = UART_BAUDRATE_BAUDRATE_Baud57600  // 57600 baud - Reduced for SoftwareSerial bridge compatibility
     };
 
     // #region agent log

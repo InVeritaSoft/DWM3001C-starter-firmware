@@ -100,13 +100,13 @@ extern "C" {
 
 // DWM3001CDK UART Configuration
 // 
-// ACTIVE: J-Link CDC UART (built-in USB, no external wiring needed)
-// - RX: GPIO 15 (P0.15) - Connected to J-Link CDC TX
-// - TX: GPIO 19 (P0.19) - Connected to J-Link CDC RX
-// - Use COM11/COM15 in Windows (J-Link CDC UART ports)
+// ACTIVE: External UART on J10 (for Arduino Bridge)
+// - RX: GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
+// - TX: GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
+// - Connect to Arduino D9 (TX) and D8 (RX) respectively
 //
-#define RX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J-Link CDC TX → nRF RX
-#define TX_PIN_NUMBER  19  // GPIO 19 (P0.19) - nRF TX → J-Link CDC RX
+#define RX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
+#define TX_PIN_NUMBER  14  // GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
