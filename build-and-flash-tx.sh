@@ -21,8 +21,8 @@ echo ""
 
 # Configure for TX
 echo "[1/4] Configuring for TX firmware..."
-sed -i 's/^#define TEST_ORCHESTRATOR_RX_V2$/\/\/#define TEST_ORCHESTRATOR_RX_V2/' Src/example_selection.h
-sed -i 's/^\/\/#define TEST_ORCHESTRATOR_TX_V2$/#define TEST_ORCHESTRATOR_TX_V2/' Src/example_selection.h
+sed -i '' 's/^#define TEST_ORCHESTRATOR_RX_V2$/\/\/#define TEST_ORCHESTRATOR_RX_V2/' Src/example_selection.h
+sed -i '' 's/^\/\/#define TEST_ORCHESTRATOR_TX_V2$/#define TEST_ORCHESTRATOR_TX_V2/' Src/example_selection.h
 echo "✓ Configured for TX"
 
 # Build
@@ -33,8 +33,8 @@ make
 echo "✓ Build complete"
 
 # Check if hex file exists
-if [ ! -f "build/dw3000_api.hex" ]; then
-    echo "✗ Error: build/dw3000_api.hex not found!"
+if [ ! -f "Output/Common/Exe/dw3000_api.hex" ]; then
+    echo "✗ Error: Output/Common/Exe/dw3000_api.hex not found!"
     exit 1
 fi
 
@@ -42,7 +42,7 @@ fi
 echo ""
 echo "[3/4] Flashing Node A (TX) with J-Link serial: $JLINK_SERIAL..."
 JLinkExe -device NRF52833_XXAA -if SWD -speed 4000 -autoconnect 1 -SelectEmuBySN $JLINK_SERIAL <<EOF > /dev/null 2>&1
-loadfile build/dw3000_api.hex
+loadfile Output/Common/Exe/dw3000_api.hex
 r
 g
 q
