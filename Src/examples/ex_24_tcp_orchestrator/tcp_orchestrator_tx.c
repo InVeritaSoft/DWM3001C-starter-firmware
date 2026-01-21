@@ -382,8 +382,11 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
-                bsp_board_led_on(2);
-                nrf_delay_ms(10);
+                // DEBUG: Blink GREEN LED (LED_2, GPIO 22) on every byte received to confirm interrupt is working
+                // NOTE: Blue LED (LED_3, GPIO 14) conflicts with UART RX pin, so using Green LED instead
+                // This helps diagnose if interrupt handler is being called
+                bsp_board_led_on(2);  // Green LED (GPIO 22) - shows interrupt is firing
+                nrf_delay_ms(10);      // Short blink
                 bsp_board_led_off(2);
                 
                 if (byte == '\r' || byte == '\n')
@@ -391,9 +394,12 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                     if (rx_index > 0)
                     {
                         rx_buffer[rx_index] = '\0';
+                        
+                        // ORANGE LED: RX - Complete command received
                         bsp_board_led_on(1);
-                        nrf_delay_ms(100);
+                        nrf_delay_ms(100);  // Longer blink for complete command
                         bsp_board_led_off(1);
+                        
                         parse_command((char *)rx_buffer);
                         rx_index = 0;
                     }
@@ -850,15 +856,8 @@ static void parse_command(char *cmd)
         
         g_test_running = 1;
         g_seq_num = 0;
-        g_stats.total_sent = 0;
-        g_stats.total_attempted = 0;
-        g_stats.tx_errors = 0;
-        g_stats.tx_timeouts = 0;
-        g_stats.last_error = 0;
-        g_stats.acks_received = 0;
-        g_stats.acks_missing = 0;
-        g_stats.retransmissions = 0;
-        g_stats.packets_in_flight = 0;
+        // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
+        // Only reset if explicitly requested via RESET_STATS command
         
         // Clear retransmission queue
         memset(g_retransmit_queue, 0, sizeof(g_retransmit_queue));
@@ -1044,6 +1043,7 @@ static void send_packet(void)
 
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
+        // Clear TX frame sent event
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK);
         g_stats.total_sent++;
         g_stats.last_tx_timestamp = dwt_readsystimestamphi32();
@@ -1118,10 +1118,11 @@ int tcp_orchestrator_tx(void)
 
     test_run_info((unsigned char *)APP_NAME);
     
-    bsp_board_led_off(0);
-    bsp_board_led_off(1);
-    bsp_board_led_off(2);
-    bsp_board_led_off(3);
+    /* Initialize all LEDs to off */
+    bsp_board_led_off(0);  // Red LED - Default/Error states
+    bsp_board_led_off(1);  // Orange LED - RX (command received)
+    bsp_board_led_off(2);  // Green LED - Byte-by-byte RX indicator (GPIO 22, doesn't conflict with UART)
+    bsp_board_led_off(3);  // Blue LED - Not used (GPIO 14 conflicts with UART RX pin)
     
     bsp_board_led_on(0);
     nrf_delay_ms(100);
