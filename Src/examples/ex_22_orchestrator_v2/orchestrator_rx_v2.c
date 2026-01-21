@@ -214,11 +214,12 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
-                // DEBUG: Blink BLUE LED on every byte received to confirm interrupt is working
+                // DEBUG: Blink GREEN LED (LED_2, GPIO 22) on every byte received to confirm interrupt is working
+                // NOTE: Blue LED (LED_3, GPIO 14) conflicts with UART RX pin, so using Green LED instead
                 // This helps diagnose if interrupt handler is being called
-                bsp_board_led_on(3);  // Blue LED - shows interrupt is firing
+                bsp_board_led_on(2);  // Green LED (GPIO 22) - shows interrupt is firing
                 nrf_delay_ms(10);      // Short blink
-                bsp_board_led_off(3);
+                bsp_board_led_off(2);
                 
                 if (byte == '\r' || byte == '\n')
                 {
@@ -347,7 +348,7 @@ static void uart_init(void)
         .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = UART_BAUDRATE_BAUDRATE_Baud57600  // 57600 baud - Reduced for SoftwareSerial bridge compatibility
+        .baud_rate = 30801920  // 115200 baud
     };
 
     // #region agent log
@@ -461,7 +462,6 @@ static void send_response(const char *response)
     uint32_t len = strlen(response);
     uint32_t timeout;
     uint32_t bytes_sent = 0;
-    static bool led3_toggle_state = false;  // Static variable to track LED toggle state
     
     // Diagnostic: Log TX start
     char log_buf[64];
@@ -475,9 +475,8 @@ static void send_response(const char *response)
     #endif
     
     // GREEN LED: TX - Response being sent (turn on at start)
+    // NOTE: Green LED is also used for byte-by-byte RX indication, but TX takes priority
     bsp_board_led_on(2);
-    // BLUE LED: TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8) - keep on during transmission
-    bsp_board_led_on(3);
     
     // Send response string
     for (uint32_t i = 0; i < len; i++)
@@ -491,20 +490,12 @@ static void send_response(const char *response)
         if (timeout == 0) {
             // TX failed - blink red LED to indicate error
             bsp_board_led_off(2);
-            bsp_board_led_off(3);
             bsp_board_led_on(0);  // Red LED = error
             nrf_delay_ms(50);
             bsp_board_led_off(0);
             return;  // Exit early on failure
         }
         bytes_sent++;
-        // Toggle blue LED for each byte to show activity
-        led3_toggle_state = !led3_toggle_state;
-        if (led3_toggle_state) {
-            bsp_board_led_on(3);
-        } else {
-            bsp_board_led_off(3);
-        }
     }
     
     // Send carriage return
@@ -516,12 +507,6 @@ static void send_response(const char *response)
     }
     if (timeout > 0) {
         bytes_sent++;
-        led3_toggle_state = !led3_toggle_state;
-        if (led3_toggle_state) {
-            bsp_board_led_on(3);
-        } else {
-            bsp_board_led_off(3);
-        }
     }
     
     // Send newline
@@ -533,12 +518,6 @@ static void send_response(const char *response)
     }
     if (timeout > 0) {
         bytes_sent++;
-        led3_toggle_state = !led3_toggle_state;
-        if (led3_toggle_state) {
-            bsp_board_led_on(3);
-        } else {
-            bsp_board_led_off(3);
-        }
     }
     
     // Wait for UART transmission to complete
@@ -554,7 +533,6 @@ static void send_response(const char *response)
     
     // Turn off LEDs - transmission complete
     bsp_board_led_off(2);  // Green LED off
-    bsp_board_led_off(3);  // Blue LED off
     
     // Diagnostic: Log TX completion
     snprintf(log_buf, sizeof(log_buf), "[DBG] TX complete: %lu bytes sent", (unsigned long)bytes_sent);
@@ -675,9 +653,9 @@ static void parse_command(char *cmd)
         test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;  // Return immediately after sending response
     }
-    else if (strcmp(cmd_upper, "NODE_TYPE") == 0 || strcmp(cmd_upper, "NT") == 0)
+    else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
     {
-        send_response("OK RX_V2");
+        send_response("OK NODE_TYPE=RX_V2");
     }
     else if (strncmp(cmd_upper, "CFG ", 4) == 0 || strncmp(cmd_upper, "SET_CONFIG ", 11) == 0)
     {
@@ -686,20 +664,12 @@ static void parse_command(char *cmd)
         else params = "";
         parse_set_config(params);
     }
-    else if (strcmp(cmd_upper, "INIT") == 0)
-    {
-        // Initialize with default configuration
-        configure_uwb();
-        g_config.configured = 1;
-        send_response("OK INIT");
-    }
-    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0 || strcmp(cmd_upper, "START") == 0)
+    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0)
     {
         if (!g_config.configured)
         {
-            // Auto-configure with defaults if not configured
-            configure_uwb();
-            g_config.configured = 1;
+            send_response("ERR NOT_CONFIGURED");
+            return;
         }
         
         g_test_running = 1;
@@ -910,8 +880,8 @@ int orchestrator_rx_v2(void)
     /* Initialize all LEDs to off */
     bsp_board_led_off(0);  // Red LED - Default/Error states
     bsp_board_led_off(1);  // Orange LED - RX (command received)
-    bsp_board_led_off(2);  // Green LED - TX (response sent)
-    bsp_board_led_off(3);  // Blue LED - TX activity indicator (GPIO 14 TX pin activity, J10 Pin 8)
+    bsp_board_led_off(2);  // Green LED - Byte-by-byte RX indicator (GPIO 22, doesn't conflict with UART)
+    bsp_board_led_off(3);  // Blue LED - Not used (GPIO 14 conflicts with UART RX pin)
     
     /* Red LED: Default state - blink to show firmware started */
     bsp_board_led_on(0);
@@ -934,19 +904,19 @@ int orchestrator_rx_v2(void)
     
     /* LED pattern to indicate UART initialized:
      * - Orange LED (LED 1): UART initialized
-     * - Blue LED (LED 3): TX activity indicator (GPIO 14 = TX pin, J10 Pin 8)
+     * - Green LED (LED 2): UART ready (blinks on each byte received)
      */
     bsp_board_led_on(1);  // Orange LED ON = UART initialized
-    bsp_board_led_on(3);  // Blue LED ON = UART ready
+    bsp_board_led_on(2);  // Green LED ON = UART ready (will blink on byte reception)
     nrf_delay_ms(200);
     bsp_board_led_off(1);
-    bsp_board_led_off(3);
+    bsp_board_led_off(2);
     nrf_delay_ms(100);
     bsp_board_led_on(1);
-    bsp_board_led_on(3);
+    bsp_board_led_on(2);
     nrf_delay_ms(200);
     bsp_board_led_off(1);
-    bsp_board_led_off(3);
+    bsp_board_led_off(2);
     
     /* Wait for UART to be ready */
     Sleep(300);

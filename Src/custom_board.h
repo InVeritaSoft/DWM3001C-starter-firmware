@@ -68,9 +68,7 @@ extern "C" {
 #define LED_1          NRF_GPIO_PIN_MAP(0,4)  //D9 on the schematics
 #define LED_2          NRF_GPIO_PIN_MAP(0,5)  //D10 on the schematics
 #define LED_3          NRF_GPIO_PIN_MAP(0,22) //D11 on the schematics
-// NOTE: LED_4 was GPIO 14, but GPIO 14 is now used for UART TX (CH340)
-// Using GPIO 22 (same as LED_3) as a placeholder to avoid conflict
-#define LED_4          NRF_GPIO_PIN_MAP(0,22) //Was D12 (GPIO 14), now using GPIO 22 to avoid UART TX conflict
+#define LED_4          NRF_GPIO_PIN_MAP(0,14) //D12 on the schematics
 #define LED_START      LED_1
 #define LED_STOP       LED_4
 
@@ -83,8 +81,7 @@ extern "C" {
 #define BSP_LED_0      4
 #define BSP_LED_1      5
 #define BSP_LED_2      22
-// NOTE: BSP_LED_3 was GPIO 14, but GPIO 14 is now UART TX for CH340
-#define BSP_LED_3      22  // Using GPIO 22 (same as LED_2) to avoid UART TX conflict
+#define BSP_LED_3      14
 
 #define BUTTONS_NUMBER 1
 
@@ -98,15 +95,14 @@ extern "C" {
 
 #define BSP_BUTTON_0   BUTTON_1
 
-// DWM3001CDK UART Configuration
-// 
-// ACTIVE: External UART on J10 (for Arduino Bridge)
-// - RX: GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
-// - TX: GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
-// - Connect to Arduino D9 (TX) and D8 (RX) respectively
-//
-#define RX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
-#define TX_PIN_NUMBER  14  // GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
+// Using default UART pins from DWM3001CDK schematic:
+// - J10 Pin 8 = TXD0/GPIO14 (P0.14) = Default UART TX
+// CORRECTED: Based on hardware testing
+// - RX_PIN_NUMBER 14 = GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Receives commands correctly
+// - TX_PIN_NUMBER 15 = GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Sends startup messages correctly
+// Hardware testing confirmed: RX=14, TX=15 works for receiving commands
+#define RX_PIN_NUMBER  14  // GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Confirmed working for RX
+#define TX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Confirmed working for TX
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -132,11 +128,12 @@ extern "C" {
 #define DW3000_SPI_IRQ_PRIORITY APP_IRQ_PRIORITY_LOW
 
 // UART symbolic constants
-// Using J-Link CDC UART (built-in)
-// - TX: GPIO 19 (P0.19) - nRF TX → J-Link CDC RX
-// - RX: GPIO 15 (P0.15) - J-Link CDC TX → nRF RX
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 19 (P0.19)
-#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15)
+// Using default UART pins from schematic:
+// - TX: GPIO 15 (P0.15) = J10 Pin 8 (TXD0) - Confirmed working for TX
+// - RX: GPIO 14 (P0.14) = J10 Pin 10 (RXD0) - Confirmed working for RX
+// Hardware testing confirmed: RX=14, TX=15 works for receiving commands
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Default UART TX
+#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Default UART RX
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED
