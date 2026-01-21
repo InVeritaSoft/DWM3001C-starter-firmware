@@ -55,8 +55,12 @@
 #define RS485_DI_PIN 11       // Driver Input (SoftwareSerial TX)
 
 // DWM3001CDK Communication Pins
-#define DWM_RX_PIN 8          // Arduino RX from DWM TX (GPIO14/TXD0)
-#define DWM_TX_PIN 9          // Arduino TX to DWM RX (GPIO15/RXD0)
+// UPDATED: DWM firmware now uses GPIO 27 for TX and GPIO 15 for RX (to avoid LED conflict)
+// - DWM TX = GPIO 27 (P0.27) - J10 Pin 13
+// - DWM RX = GPIO 15 (P0.15) - J10 Pin 10 or Pin 15
+// Arduino connections remain the same (D8/D9), but verify wiring matches DWM pins
+#define DWM_RX_PIN 8          // Arduino RX from DWM TX (GPIO27, J10 Pin 13)
+#define DWM_TX_PIN 9          // Arduino TX to DWM RX (GPIO15, J10 Pin 10/15)
 
 // LED Indicator Pins
 #define LED_RX_PIN 4          // RX Activity LED
@@ -99,6 +103,20 @@ unsigned long lastRS485CheckTime = 0;
 int rs485BytesReceived = 0;
 int rs485BytesDropped = 0;
 
+// Test mode variables
+unsigned long lastTestTime = 0;
+bool testModeEnabled = false;
+int testCommandIndex = 0;
+const char* testCommands[] = {"PNG", "NODE_TYPE", "STAT"};
+const int testCommandCount = 3;
+
+// Auto-ping mode: Send PNG to DWM every 5 seconds (always active, not just in test mode)
+unsigned long lastAutoPingTime = 0;
+#define AUTO_PING_INTERVAL_MS 5000  // 5 seconds
+
+// CRITICAL: Flag to prevent listener switching during DWM communication
+bool waitingForDWMResponse = false;
+
 // LED state tracking
 unsigned long ledRxOffTime = 0;
 unsigned long ledTxOffTime = 0;
@@ -124,6 +142,7 @@ void blink_tx_led();
 void set_error_led(bool state);
 void update_heartbeat();
 void update_activity_leds();
+void test_dwm_communication();
 
 // ============================================================================
 // SETUP FUNCTION
@@ -135,7 +154,10 @@ void setup() {
   
   // Wait for serial port to stabilize and clear any garbage data
   // This prevents garbled characters at startup
-  while (!Serial) {
+  // NOTE: On Arduino Uno, Serial is always available, so this won't block
+  // On Leonardo/Micro, it waits for USB connection (max 3 seconds)
+  unsigned long serialWaitStart = millis();
+  while (!Serial && (millis() - serialWaitStart < 3000)) {
     ; // Wait for serial port to connect (needed for native USB boards)
   }
   delay(100);  // Additional stabilization delay
@@ -248,6 +270,12 @@ void setup() {
   
   Serial.println(F("[SETUP] Listening for 3 seconds..."));
   while (millis() - checkStart < 3000) {  // Check for 3 seconds
+    // CRITICAL FIX: Ensure listener is on DWM during startup check
+    if (!DWMSerial.isListening()) {
+      DWMSerial.listen();
+      delay(10);
+    }
+    
     if (DWMSerial.available()) {
       char c = DWMSerial.read();
       startupBytes++;
@@ -270,6 +298,9 @@ void setup() {
       }
       
       if (startupBytes > 500) break;  // Prevent buffer overflow
+    } else {
+      // Small delay to allow SoftwareSerial interrupt handlers to run
+      delay(1);
     }
   }
   
@@ -299,8 +330,8 @@ void setup() {
     Serial.println(F("[SETUP] Troubleshooting:"));
     Serial.println(F("[SETUP]   1. DWM3001CDK powered on? (check power LED)"));
     Serial.println(F("[SETUP]   2. Wiring correct?"));
-    Serial.println(F("[SETUP]      - DWM GPIO14 (TX) → Arduino D8 (RX)"));
-    Serial.println(F("[SETUP]      - DWM GPIO15 (RX) → Arduino D9 (TX)"));
+    Serial.println(F("[SETUP]      - DWM GPIO14 (RX) → Arduino D9 (TX)"));
+    Serial.println(F("[SETUP]      - DWM GPIO15 (TX) → Arduino D8 (RX)"));
     Serial.println(F("[SETUP]      - DWM GND → Arduino GND"));
     Serial.println(F("[SETUP]   3. DWM3001CDK firmware flashed?"));
     Serial.println(F("[SETUP]      - Should be orchestrator_rx.c or orchestrator_tx.c"));
@@ -314,7 +345,7 @@ void setup() {
   }
   
   // Clear any remaining data
-  int cleared = 0;
+  cleared = 0;  // Reuse variable declared earlier
   while (DWMSerial.available()) {
     DWMSerial.read();
     cleared++;
@@ -366,6 +397,9 @@ void setup() {
   Serial.println(F("  3. RS485 baud rate matches (57600)"));
   Serial.println(F("  4. RS485 transceiver power"));
   Serial.println(F("  5. Orchestrator is sending commands"));
+  Serial.println(F("=========================================="));
+  Serial.println(F("[TEST] Send 'T' via USB Serial to enable test mode"));
+  Serial.println(F("[TEST] Test mode sends commands to DWM every 5 seconds"));
   Serial.println(F("==========================================\n"));
 }
 
@@ -374,8 +408,209 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Ensure we are listening to RS485 for incoming commands
-  if (!RS485Serial.isListening()) {
+  // Check for test mode command via USB Serial
+  if (Serial.available()) {
+    char cmd = Serial.read();
+    if (cmd == 'T' || cmd == 't') {
+      testModeEnabled = !testModeEnabled;
+      Serial.print(F("[TEST] Test mode "));
+      Serial.println(testModeEnabled ? "ENABLED" : "DISABLED");
+      if (testModeEnabled) {
+        testCommandIndex = 0;
+        lastTestTime = millis();
+      }
+    }
+  }
+  
+  // Run test mode if enabled
+  if (testModeEnabled) {
+    test_dwm_communication();
+  }
+  
+  // AUTO-PING: Send PNG command to DWM every 5 seconds (always active)
+  if (millis() - lastAutoPingTime >= AUTO_PING_INTERVAL_MS) {
+    lastAutoPingTime = millis();
+    
+    Serial.println(F("=========================================="));
+    Serial.println(F("[AUTO-PING] Sending PNG to DWM..."));
+    Serial.println(F("=========================================="));
+    
+    // Set flag to prevent listener switching during communication
+    waitingForDWMResponse = true;
+    
+    // Clear DWM buffer before sending
+    DWMSerial.listen();
+    delay(20);
+    int cleared = 0;
+    while (DWMSerial.available()) {
+      DWMSerial.read();
+      cleared++;
+    }
+    if (cleared > 0) {
+      Serial.print(F("[AUTO-PING] Cleared "));
+      Serial.print(cleared);
+      Serial.println(F(" bytes from DWM buffer"));
+    }
+    
+    // Send PNG command
+    dwm_send_command("PNG");
+    
+    // Wait for response
+    bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
+    
+    // Clear the flag
+    waitingForDWMResponse = false;
+    
+    if (responseReceived) {
+      Serial.print(F("[AUTO-PING] ✅ Response: \""));
+      Serial.print(responseBuffer);
+      Serial.println(F("\""));
+      
+      // Forward successful ping result to orchestrator via RS485
+      // Format: OK PING <response_from_dwm>
+      char pingResponse[128];
+      snprintf(pingResponse, sizeof(pingResponse), "OK PING %s", responseBuffer);
+      rs485_send_response(pingResponse);
+      Serial.print(F("[AUTO-PING] → Sent to orchestrator: \""));
+      Serial.print(pingResponse);
+      Serial.println(F("\""));
+    } else {
+      Serial.println(F("[AUTO-PING] ❌ No response received"));
+      
+      // Forward timeout error to orchestrator via RS485
+      rs485_send_response("ERR PING_TIMEOUT");
+      Serial.println(F("[AUTO-PING] → Sent to orchestrator: ERR PING_TIMEOUT"));
+    }
+    Serial.println();
+  }
+  
+  // BACKGROUND LISTENER: Catch autonomous messages from DWM (like "OK PING" every 5s)
+  // Only check when not actively waiting for a response to avoid conflicts
+  if (!waitingForDWMResponse) {
+    static char dwmBackgroundBuffer[256] = {0};
+    static int dwmBackgroundIndex = 0;
+    static unsigned long lastDWMBackgroundCheck = 0;
+    
+    // Check for incoming data from DWM every 100ms (faster than diagnostic check)
+    if (millis() - lastDWMBackgroundCheck > 100) {
+      lastDWMBackgroundCheck = millis();
+      
+      bool wasListening = RS485Serial.isListening();
+      // #region agent log - listener check
+      static unsigned long lastListenerLog = 0;
+      if (millis() - lastListenerLog > 1000) {  // Log every 1 second
+        lastListenerLog = millis();
+        Serial.print(F("[DWM-AUTO-DBG] Listener check: RS485="));
+        Serial.print(wasListening ? "YES" : "NO");
+        Serial.print(F(", DWM="));
+        Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+      }
+      // #endregion
+      if (wasListening) {
+        // Temporarily switch to DWM to check for data
+        DWMSerial.listen();
+        delay(5);  // Small delay for listener switch
+      }
+      
+      int availableBefore = DWMSerial.available();
+      // #region agent log - bytes available
+      if (availableBefore > 0) {
+        Serial.print(F("[DWM-AUTO-DBG] Found "));
+        Serial.print(availableBefore);
+        Serial.println(F(" bytes available from DWM"));
+      }
+      // #endregion
+      
+      // Read available bytes from DWM
+      int bytesRead = 0;
+      while (DWMSerial.available() && dwmBackgroundIndex < sizeof(dwmBackgroundBuffer) - 1) {
+        char c = DWMSerial.read();
+        bytesRead++;
+        
+        // #region agent log - byte received
+        Serial.print(F("[DWM-AUTO-DBG] Byte #"));
+        Serial.print(bytesRead);
+        Serial.print(F(": 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" '"));
+        if (c >= 32 && c < 127) Serial.print(c);
+        Serial.println(F("'"));
+        // #endregion
+        
+        // Check for message terminator (\r or \n)
+        if (c == '\r' || c == '\n') {
+          if (dwmBackgroundIndex > 0) {
+            // Complete message received - null terminate and process
+            dwmBackgroundBuffer[dwmBackgroundIndex] = '\0';
+            
+            Serial.print(F("[DWM-AUTO] ✅ Caught autonomous message: \""));
+            Serial.print(dwmBackgroundBuffer);
+            Serial.println(F("\""));
+            
+            // Forward to orchestrator
+            char autoResponse[128];
+            snprintf(autoResponse, sizeof(autoResponse), "OK AUTO %s", dwmBackgroundBuffer);
+            rs485_send_response(autoResponse);
+            Serial.print(F("[DWM-AUTO] → Sent to orchestrator: \""));
+            Serial.print(autoResponse);
+            Serial.println(F("\""));
+            
+            // Reset buffer
+            dwmBackgroundIndex = 0;
+            dwmBackgroundBuffer[0] = '\0';
+          }
+        } else if (c >= 32 && c < 127) {
+          // Valid ASCII character - add to buffer
+          dwmBackgroundBuffer[dwmBackgroundIndex++] = c;
+        }
+        // Ignore other control characters
+      }
+      
+      // Restore listener if we switched it
+      if (wasListening) {
+        RS485Serial.listen();
+      }
+    }
+  }
+  
+  // CRITICAL DIAGNOSTIC: Periodically check if ANY bytes are arriving from DWM
+  // This helps diagnose if the connection is working at all
+  static unsigned long lastDWMCheck = 0;
+  if (millis() - lastDWMCheck > 2000) {  // Check every 2 seconds
+    lastDWMCheck = millis();
+    bool wasListening = DWMSerial.isListening();
+    if (!wasListening) {
+      DWMSerial.listen();
+      delay(10);
+    }
+    int dwmBytes = DWMSerial.available();
+    if (dwmBytes > 0) {
+      Serial.print(F("[DIAG] DWM has "));
+      Serial.print(dwmBytes);
+      Serial.println(F(" bytes waiting (outside command cycle)!"));
+      Serial.flush();
+      // Read and display them
+      for (int i = 0; i < dwmBytes && i < 10; i++) {
+        char c = DWMSerial.read();
+        Serial.print(F("[DIAG] DWM byte: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" '"));
+        if (c >= 32 && c < 127) Serial.print(c);
+        Serial.println(F("'"));
+        Serial.flush();
+      }
+    }
+    if (!wasListening) {
+      RS485Serial.listen();  // Restore RS485 listener
+    }
+  }
+  
+  // CRITICAL FIX: Only switch to RS485 if we're not currently waiting for DWM response
+  // Don't switch listener while DWM communication is in progress
+  // This prevents missing DWM responses due to listener switching
+  if (!waitingForDWMResponse && !RS485Serial.isListening()) {
     RS485Serial.listen();
     Serial.println(F("[RS485] Switched listener to RS485 port"));
   }
@@ -514,10 +749,19 @@ void loop() {
       // Send command EXACTLY as orchestrator sent it (commandBuffer already has the command)
       // DWM3001CDK expects: "PNG\r\n", "NODE_TYPE\r\n", etc.
       // We forward the exact command string, then add \r\n terminator
+      
+      // CRITICAL FIX: Mark that we're waiting for DWM response to prevent listener switching
+      waitingForDWMResponse = true;
+      
       dwm_send_command(commandBuffer);
       
       // Wait for response from DWM3001CDK
-      if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
+      bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
+      
+      // Clear the flag after response (or timeout)
+      waitingForDWMResponse = false;
+      
+      if (responseReceived) {
         // Valid response received - send to orchestrator
         Serial.println(F("[DWM->] =========================================="));
         Serial.print(F("[DWM->] ✅ Response received: \""));
@@ -559,7 +803,7 @@ void loop() {
         Serial.println(F("[ERROR]"));
         Serial.println(F("[ERROR] Possible causes:"));
         Serial.println(F("[ERROR]   1. DWM3001CDK not powered on"));
-        Serial.println(F("[ERROR]   2. Wiring issue (GPIO14→D8, GPIO15→D9, GND→GND)"));
+        Serial.println(F("[ERROR]   2. Wiring issue (GPIO14→D9, GPIO15→D8, GND→GND)"));
         Serial.println(F("[ERROR]   3. DWM3001CDK firmware not running"));
         Serial.println(F("[ERROR]   4. Baud rate mismatch (should be 115200)"));
         Serial.println(F("[ERROR]   5. DWM3001CDK UART not initialized"));
@@ -781,21 +1025,91 @@ void rs485_send_response(const char* response) {
  * Format: command + \r\n (same as orchestrator sends)
  */
 void dwm_send_command(const char* command) {
-  // Ensure DWM serial is listening
+  // #region agent log
+  Serial.print(F("[DEBUG] dwm_send_command ENTRY: command=\""));
+  Serial.print(command);
+  Serial.print(F("\", len="));
+  Serial.print(strlen(command));
+  Serial.print(F(", DWMSerial.isListening()="));
+  Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+  // #endregion
+  
+  // CRITICAL FIX: Ensure DWM serial is listening and verify it stays listening
   if (!DWMSerial.isListening()) {
+    // #region agent log
+    Serial.println(F("[DEBUG] Switching listener to DWM serial"));
+    // #endregion
     DWMSerial.listen();
-    delay(10);
+    delay(20);  // Increased delay to ensure listener switch completes
+    
+    // Verify the switch was successful
+    if (!DWMSerial.isListening()) {
+      // #region agent log
+      Serial.println(F("[DEBUG] ERROR: Listener switch failed!"));
+      // #endregion
+      Serial.println(F("[ERROR] Failed to switch to DWM serial listener!"));
+      // Try one more time
+      DWMSerial.listen();
+      delay(20);
+    }
   }
+  
+  // #region agent log
+  Serial.print(F("[DEBUG] BEFORE send: command=\""));
+  Serial.print(command);
+  Serial.println(F("\""));
+  Serial.print(F("[DEBUG] Sending bytes: "));
+  for (int i = 0; i < strlen(command); i++) {
+    Serial.print(F("0x"));
+    if ((unsigned char)command[i] < 0x10) Serial.print('0');
+    Serial.print((unsigned char)command[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println(F("0x0D 0x0A (\\r\\n)"));
+  // #endregion
   
   // Send command exactly as orchestrator sent it
   // Orchestrator sends: command + \r\n
   // We forward: command + \r\n (identical format)
+  
+  // #region agent log
+  Serial.print(F("[DEBUG] About to send to DWMSerial, available before: "));
+  Serial.println(DWMSerial.available());
+  // #endregion
+  
   DWMSerial.print(command);
   DWMSerial.print("\r\n");  // Add terminator (same as orchestrator)
   
-  // Small delay to ensure transmission completes
-  // SoftwareSerial needs time to send all bits at 115200 baud
-  delay(5);
+  // #region agent log
+  Serial.println(F("[DEBUG] AFTER send: command sent to DWMSerial"));
+  Serial.print(F("[DEBUG] Available after send: "));
+  Serial.println(DWMSerial.available());
+  // #endregion
+  
+  // CRITICAL FIX: Increased delay to ensure transmission completes
+  // SoftwareSerial at 115200 baud needs more time:
+  // - Each byte takes ~87us at 115200 baud
+  // - For "PNG\r\n" (5 bytes) = ~435us minimum
+  // - Add margin for SoftwareSerial overhead and DWM processing time
+  // - Also need time for DWM to process command and start responding
+  // - SoftwareSerial needs additional time to complete bit transmission
+  delay(50);  // Increased to 50ms to ensure reliable transmission and DWM processing
+  
+  // #region agent log
+  // Check if any data appeared immediately (unlikely but possible)
+  int immediateAvailable = DWMSerial.available();
+  if (immediateAvailable > 0) {
+    Serial.print(F("[DEBUG] Data already available after send delay: "));
+    Serial.print(immediateAvailable);
+    Serial.println(F(" bytes"));
+  } else {
+    Serial.println(F("[DEBUG] No immediate data, will wait for response"));
+  }
+  // #endregion
+  
+  // #region agent log
+  Serial.println(F("[DEBUG] dwm_send_command EXIT"));
+  // #endregion
 }
 
 /**
@@ -804,34 +1118,259 @@ void dwm_send_command(const char* command) {
  * Returns true if valid response received, false on timeout
  */
 bool dwm_receive_response(char* buffer, int maxLen) {
+  // #region agent log
+  Serial.println(F("[DEBUG] dwm_receive_response ENTRY"));
+  Serial.flush();  // CRITICAL: Force output to appear immediately
+  Serial.print(F("[DEBUG] maxLen="));
+  Serial.print(maxLen);
+  Serial.print(F(", DWMSerial.isListening()="));
+  Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+  Serial.flush();
+  // #endregion
+  
   int index = 0;
   unsigned long startTime = millis();
   bool firstChar = true;
   int bytesReceived = 0;
   
+  // #region agent log
+  Serial.println(F("[DEBUG] About to print waiting message..."));
+  Serial.flush();
+  // #endregion
+  
   Serial.print(F("[DWM RX] Waiting for response (timeout="));
   Serial.print(DWM_RESPONSE_TIMEOUT_MS);
   Serial.println(F("ms)..."));
+  Serial.flush();  // CRITICAL: Force output
   
-  // Check if DWM serial is listening
+  // CRITICAL FIX: Ensure DWM serial is listening and STAYS listening
+  // Don't allow listener to switch away during response wait
+  // #region agent log
+  Serial.println(F("[DEBUG] Checking listener state..."));
+  Serial.flush();
+  // #endregion
+  
   if (!DWMSerial.isListening()) {
+    // #region agent log
+    Serial.println(F("[DEBUG] DWM serial not listening, switching..."));
+    Serial.flush();
+    // #endregion
     Serial.println(F("[DWM RX] WARNING: DWM serial not listening! Switching..."));
+    Serial.flush();
     DWMSerial.listen();
-    delay(10);
+    delay(20);  // Increased delay to ensure listener switch completes
   }
   
+  // #region agent log
+  Serial.print(F("[DEBUG] Verified listener state: DWMSerial.isListening()="));
+  Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+  Serial.flush();
+  // #endregion
+  
+  // CRITICAL FIX: Small delay after ensuring listener is set
+  // This allows SoftwareSerial to stabilize before we start reading
+  // #region agent log
+  Serial.println(F("[DEBUG] Waiting 10ms for SoftwareSerial stabilization..."));
+  Serial.flush();
+  // #endregion
+  delay(10);
+  
   // Check initial availability
+  // #region agent log
+  Serial.println(F("[DEBUG] Checking initial available bytes..."));
+  Serial.flush();
+  // #endregion
   int initialAvailable = DWMSerial.available();
+  // #region agent log
+  Serial.print(F("[DEBUG] Initial bytes available: "));
+  Serial.println(initialAvailable);
+  Serial.print(F("[DEBUG] Listener state check: DWMSerial.isListening()="));
+  Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+  Serial.flush();
+  // #endregion
   if (initialAvailable > 0) {
     Serial.print(F("[DWM RX] Already have "));
     Serial.print(initialAvailable);
     Serial.println(F(" bytes available"));
+    // #region agent log
+    Serial.print(F("[DEBUG] Reading initial bytes: "));
+    char peekChar = DWMSerial.peek();
+    Serial.print(F("0x"));
+    if ((unsigned char)peekChar < 0x10) Serial.print('0');
+    Serial.print((unsigned char)peekChar, HEX);
+    Serial.print(F(" ('"));
+    if (peekChar >= 32 && peekChar < 127) Serial.print(peekChar);
+    Serial.println(F("')"));
+    // #endregion
   }
   
+  unsigned long lastByteTime = startTime;  // Track when we last received a byte
+  unsigned long lastAvailableCheck = startTime;
+  int consecutiveNoDataChecks = 0;
+  
+  // #region agent log
+  Serial.println(F("[DEBUG] Entering main receive loop..."));
+  Serial.flush();
+  // #endregion
+  
+  // CRITICAL DIAGNOSTIC: Before entering the main loop, do an aggressive check
+  // to see if ANY bytes are arriving at all, even if they're not valid responses
+  // This helps diagnose if the issue is:
+  // 1. No data arriving (hardware/wiring issue)
+  // 2. Data arriving but not being read (SoftwareSerial issue)
+  // 3. Data arriving but wrong format (firmware/baud rate issue)
+  // #region agent log
+  Serial.println(F("[DEBUG] Performing aggressive byte detection check..."));
+  Serial.flush();
+  
+  // Check multiple times over 200ms to catch any delayed responses
+  int maxAggressiveChecks = 20;
+  int aggressiveBytesFound = 0;
+  for (int check = 0; check < maxAggressiveChecks; check++) {
+    delay(10);  // Check every 10ms
+    int availableNow = DWMSerial.available();
+    if (availableNow > 0) {
+      aggressiveBytesFound = availableNow;
+      Serial.print(F("[DEBUG] AGGRESSIVE CHECK #"));
+      Serial.print(check);
+      Serial.print(F(": Found "));
+      Serial.print(availableNow);
+      Serial.print(F(" bytes available at "));
+      Serial.print(check * 10);
+      Serial.println(F("ms!"));
+      Serial.flush();
+      break;  // Found bytes, stop checking
+    }
+  }
+  
+  if (aggressiveBytesFound > 0) {
+    Serial.print(F("[DEBUG] Reading "));
+    Serial.print(aggressiveBytesFound);
+    Serial.println(F(" bytes from aggressive check..."));
+    Serial.flush();
+    for (int i = 0; i < aggressiveBytesFound && i < 20; i++) {
+      char c = DWMSerial.read();
+      Serial.print(F("[DEBUG] Byte "));
+      Serial.print(i);
+      Serial.print(F(": 0x"));
+      if ((unsigned char)c < 0x10) Serial.print('0');
+      Serial.print((unsigned char)c, HEX);
+      Serial.print(F(" ("));
+      Serial.print((int)c);
+      Serial.print(F(") '"));
+      if (c >= 32 && c < 127) Serial.print(c);
+      Serial.println(F("'"));
+      Serial.flush();
+    }
+  } else {
+    Serial.print(F("[DEBUG] AGGRESSIVE CHECK: No bytes available after "));
+    Serial.print(maxAggressiveChecks * 10);
+    Serial.println(F("ms of checking"));
+    Serial.println(F("[DEBUG] This indicates DWM is NOT sending any data"));
+    Serial.println(F("[DEBUG] Possible causes:"));
+    Serial.println(F("[DEBUG]   1. DWM not powered"));
+    Serial.println(F("[DEBUG]   2. Wiring incorrect (GPIO14→D9, GPIO15→D8)"));
+    Serial.println(F("[DEBUG]   3. DWM firmware not running"));
+    Serial.println(F("[DEBUG]   4. Baud rate mismatch"));
+    Serial.flush();
+  }
+  // #endregion
+  
   while (index < maxLen - 1) {
-    if (DWMSerial.available()) {
+    // CRITICAL FIX: Periodically verify listener hasn't switched away
+    // This prevents missing data if listener gets switched by main loop
+    if (!DWMSerial.isListening() && waitingForDWMResponse) {
+      // #region agent log
+      Serial.println(F("[DEBUG] WARNING: Listener switched away during receive! Restoring..."));
+      // #endregion
+      Serial.println(F("[WARN] Listener was switched away - restoring DWM listener"));
+      DWMSerial.listen();
+      delay(20);  // Increased delay for listener restoration
+    }
+    
+      // #region agent log
+      // Log periodic status every 500ms to track progress
+      unsigned long currentCheckTime = millis();
+      static unsigned long lastStatusLog = 0;
+      if (currentCheckTime - lastStatusLog > 500) {
+        lastStatusLog = currentCheckTime;
+        int currentAvailable = DWMSerial.available();
+        Serial.print(F("[DEBUG] Still waiting: elapsed="));
+        Serial.print(currentCheckTime - startTime);
+        Serial.print(F("ms, available="));
+        Serial.print(currentAvailable);
+        Serial.print(F(", index="));
+        Serial.print(index);
+        Serial.print(F(", listening="));
+        Serial.print(DWMSerial.isListening() ? "YES" : "NO");
+        Serial.print(F(", bytesReceived="));
+        Serial.print(bytesReceived);
+        Serial.print(F(", lastByteTime="));
+        Serial.print(currentCheckTime - lastByteTime);
+        Serial.println(F("ms ago"));
+        Serial.flush();  // CRITICAL: Force output
+      
+      // If we have bytes available but haven't read them, that's suspicious
+      if (currentAvailable > 0 && bytesReceived == 0) {
+        Serial.println(F("[DEBUG] WARNING: Bytes available but not being read! Possible blocking issue."));
+        // Try to peek at what's there
+        char peekChar = DWMSerial.peek();
+        Serial.print(F("[DEBUG] Peek at first byte: 0x"));
+        if ((unsigned char)peekChar < 0x10) Serial.print('0');
+        Serial.print((unsigned char)peekChar, HEX);
+        Serial.print(F(" ('"));
+        if (peekChar >= 32 && peekChar < 127) Serial.print(peekChar);
+        Serial.println(F("')"));
+      }
+    }
+    // #endregion
+    
+    // CRITICAL FIX: More aggressive reading - check available() more frequently
+    // SoftwareSerial can miss bytes if we don't read fast enough at 115200 baud
+    int availableNow = DWMSerial.available();
+    if (availableNow > 0) {
+      // #region agent log
+      // Log when bytes become available (first time only)
+      if (bytesReceived == 0 && availableNow > 0) {
+        Serial.print(F("[DEBUG] BYTES DETECTED! available()="));
+        Serial.print(availableNow);
+        Serial.print(F(" at elapsed="));
+        Serial.print(millis() - startTime);
+        Serial.println(F("ms"));
+        Serial.flush();
+      }
+      // #endregion
+      
+      // CRITICAL FIX: Read immediately when available
+      // SoftwareSerial can lose bytes if we don't read fast enough at 115200 baud
       char c = DWMSerial.read();
       bytesReceived++;
+      
+      // #region agent log
+      if (firstChar) {
+        firstChar = false;  // Mark that we've received the first byte
+        Serial.print(F("[DEBUG] FIRST BYTE received: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" ("));
+        Serial.print((int)c);
+        Serial.print(F(") '"));
+        if (c >= 32 && c < 127) Serial.print(c);
+        Serial.print(F("' at elapsed="));
+        Serial.print(millis() - startTime);
+        Serial.println(F("ms"));
+        Serial.flush();
+        
+        // Also check if more bytes are already available (DWM might send fast)
+        int moreAvailable = DWMSerial.available();
+        if (moreAvailable > 0) {
+          Serial.print(F("[DEBUG] More bytes already available: "));
+          Serial.print(moreAvailable);
+          Serial.println(F(" (DWM responding quickly)"));
+          Serial.flush();
+        }
+      }
+      // #endregion
       
       // Log first few characters for debugging
       if (firstChar) {
@@ -852,10 +1391,43 @@ bool dwm_receive_response(char* buffer, int maxLen) {
         firstChar = false;
       }
       
+      // CRITICAL FIX: Less aggressive filtering - accept more characters
+      // Some DWM responses might have control characters we need to handle
+      // Only filter truly invalid characters (null bytes)
+      if (c == 0x00) {
+        // #region agent log
+        Serial.println(F("[DEBUG] Filtered null byte"));
+        // #endregion
+        Serial.print(F("[DWM RX] Filtered null byte: 0x00"));
+        Serial.println();
+        continue;  // Skip null bytes only
+      }
+      
+      // Log non-printable characters but don't filter them (they might be valid)
+      if (c < 32 && c != '\r' && c != '\n' && c != '\t') {
+        // #region agent log
+        Serial.print(F("[DEBUG] Non-printable char received: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" ("));
+        Serial.print((int)c);
+        Serial.println(F(") - accepting anyway"));
+        // #endregion
+        // Don't filter - accept it and see what happens
+      }
+      
       // Check for response terminator
       if (c == '\r' || c == '\n') {
         if (index > 0) {  // Only accept if we have data
           buffer[index] = '\0';  // Null terminate
+          // #region agent log
+          Serial.print(F("[DEBUG] RESPONSE COMPLETE: \""));
+          Serial.print(buffer);
+          Serial.print(F("\", len="));
+          Serial.print(index);
+          Serial.print(F(", bytesReceived="));
+          Serial.println(bytesReceived);
+          // #endregion
           Serial.print(F("[DWM RX] Response complete: \""));
           Serial.print(buffer);
           Serial.print(F("\" ("));
@@ -869,21 +1441,78 @@ bool dwm_receive_response(char* buffer, int maxLen) {
         buffer[index++] = c;
       }
       
+      lastByteTime = millis();  // Track when we last received a byte
       startTime = millis();  // Reset timeout on each character
+      
+      // #region agent log
+      // Log every 10th byte to track progress without spamming
+      if (bytesReceived % 10 == 0) {
+        Serial.print(F("[DEBUG] Received "));
+        Serial.print(bytesReceived);
+        Serial.print(F(" bytes so far, index="));
+        Serial.print(index);
+        Serial.print(F(", last char: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.println();
+      }
+      // #endregion
+    } else {
+      // CRITICAL FIX: Small delay when no data available
+      // This prevents tight looping and allows SoftwareSerial interrupt handlers to run
+      // SoftwareSerial uses interrupts, so we need to yield CPU time
+      delay(1);  // 1ms delay allows interrupt handlers to process incoming bytes
     }
     
     // Timeout check
     unsigned long elapsed = millis() - startTime;
+    // #region agent log
+    if (elapsed > 1000 && elapsed % 1000 == 0) {
+      Serial.print(F("[DEBUG] Still waiting, elapsed="));
+      Serial.print(elapsed);
+      Serial.print(F("ms, bytesReceived="));
+      Serial.print(bytesReceived);
+      Serial.print(F(", index="));
+      Serial.print(index);
+      Serial.print(F(", available="));
+      Serial.println(DWMSerial.available());
+    }
+    // #endregion
     if (elapsed > DWM_RESPONSE_TIMEOUT_MS) {
       if (index > 0) {
         buffer[index] = '\0';
-        Serial.print(F("[WARN] DWM response timeout, partial: \""));
-        Serial.print(buffer);
-        Serial.print(F("\" ("));
-        Serial.print(index);
-        Serial.println(F(" chars)"));
-        return true;  // Return partial response
+        // Only return partial response if it looks valid (starts with "OK" or "ERR")
+        if (strncmp(buffer, "OK", 2) == 0 || strncmp(buffer, "ERR", 3) == 0) {
+          Serial.print(F("[WARN] DWM response timeout, partial: \""));
+          Serial.print(buffer);
+          Serial.print(F("\" ("));
+          Serial.print(index);
+          Serial.println(F(" chars)"));
+          return true;  // Return partial response if it looks valid
+        } else {
+          Serial.print(F("[WARN] DWM response timeout, invalid partial: \""));
+          Serial.print(buffer);
+          Serial.print(F("\" ("));
+          Serial.print(index);
+          Serial.println(F(" chars) - ignoring"));
+          // Don't return invalid partial responses
+        }
       }
+      // #region agent log
+      Serial.print(F("[DEBUG] TIMEOUT: elapsed="));
+      Serial.print(elapsed);
+      Serial.print(F("ms, bytesReceived="));
+      Serial.print(bytesReceived);
+      Serial.print(F(", index="));
+      Serial.print(index);
+      Serial.print(F(", buffer so far: \""));
+      if (index > 0) {
+        buffer[index] = '\0';
+        Serial.print(buffer);
+      }
+      Serial.println(F("\""));
+      // #endregion
+      
       Serial.print(F("[WARN] DWM response timeout - no data received (checked for "));
       Serial.print(elapsed);
       Serial.print(F("ms, bytes seen: "));
@@ -892,6 +1521,10 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       
       // Diagnostic: Check if DWM serial is still available
       int stillAvailable = DWMSerial.available();
+      // #region agent log
+      Serial.print(F("[DEBUG] Still available bytes: "));
+      Serial.println(stillAvailable);
+      // #endregion
       if (stillAvailable > 0) {
         Serial.print(F("[WARN] DWM serial still has "));
         Serial.print(stillAvailable);
@@ -908,6 +1541,61 @@ bool dwm_receive_response(char* buffer, int maxLen) {
         Serial.println(F("\""));
       }
       
+      // CRITICAL FIX: Before giving up, try one more aggressive read attempt
+      // Sometimes SoftwareSerial has bytes but available() doesn't report them correctly
+      Serial.println(F("[WARN] Attempting final aggressive read..."));
+      delay(100);  // Give it more time
+      
+      // Try reading any remaining bytes aggressively
+      int finalAttemptBytes = 0;
+      char finalBuffer[64] = {0};
+      int finalIndex = 0;
+      unsigned long finalStart = millis();
+      
+      while (finalIndex < sizeof(finalBuffer) - 1 && (millis() - finalStart < 500)) {
+        if (DWMSerial.available()) {
+          char fc = DWMSerial.read();
+          finalBuffer[finalIndex++] = fc;
+          finalAttemptBytes++;
+        } else {
+          delay(1);  // Small delay between checks
+        }
+      }
+      
+      if (finalAttemptBytes > 0) {
+        finalBuffer[finalIndex] = '\0';
+        // #region agent log
+        Serial.print(F("[DEBUG] Final aggressive read got "));
+        Serial.print(finalAttemptBytes);
+        Serial.print(F(" bytes: \""));
+        for (int i = 0; i < finalIndex; i++) {
+          if (finalBuffer[i] >= 32 && finalBuffer[i] < 127) {
+            Serial.print(finalBuffer[i]);
+          } else {
+            Serial.print(F("\\x"));
+            if ((unsigned char)finalBuffer[i] < 0x10) Serial.print('0');
+            Serial.print((unsigned char)finalBuffer[i], HEX);
+          }
+        }
+        Serial.println(F("\""));
+        // #endregion
+        Serial.print(F("[WARN] Final read attempt recovered "));
+        Serial.print(finalAttemptBytes);
+        Serial.print(F(" bytes: \""));
+        Serial.print(finalBuffer);
+        Serial.println(F("\""));
+        
+        // If this looks like a valid response, use it
+        if (strncmp(finalBuffer, "OK", 2) == 0 || strncmp(finalBuffer, "ERR", 3) == 0) {
+          strncpy(buffer, finalBuffer, maxLen - 1);
+          buffer[maxLen - 1] = '\0';
+          // #region agent log
+          Serial.println(F("[DEBUG] Using recovered response from final read"));
+          // #endregion
+          return true;
+        }
+      }
+      
       // Additional diagnostic: Check if DWM3001CDK might be sending but we're not receiving
       Serial.println(F("[WARN] =========================================="));
       Serial.println(F("[WARN] DWM3001CDK Communication Failure"));
@@ -918,7 +1606,7 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       Serial.println(F("[WARN]"));
       Serial.println(F("[WARN] If NO startup messages appeared:"));
       Serial.println(F("[WARN]   1. DWM3001CDK firmware not running"));
-      Serial.println(F("[WARN]   2. Wiring incorrect (check GPIO14→D8, GPIO15→D9)"));
+      Serial.println(F("[WARN]   2. Wiring incorrect (check GPIO14→D9, GPIO15→D8)"));
       Serial.println(F("[WARN]   3. DWM3001CDK not powered"));
       Serial.println(F("[WARN]   4. Baud rate mismatch"));
       Serial.println(F("[WARN]"));
@@ -926,17 +1614,30 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       Serial.println(F("[WARN]   1. DWM3001CDK might be in wrong state"));
       Serial.println(F("[WARN]   2. Command format might be wrong"));
       Serial.println(F("[WARN]   3. DWM3001CDK UART might have issues"));
+      Serial.println(F("[WARN]   4. SoftwareSerial at 115200 baud may be unreliable"));
       Serial.println(F("[WARN] =========================================="));
       
+      // #region agent log
+      Serial.println(F("[DEBUG] dwm_receive_response EXIT: false (timeout)"));
+      // #endregion
       return false;  // No response
     }
   }
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
+  // #region agent log
+  Serial.print(F("[DEBUG] BUFFER FULL: index="));
+  Serial.print(index);
+  Serial.print(F(", maxLen="));
+  Serial.println(maxLen);
+  // #endregion
   Serial.print(F("[ERROR] DWM response buffer full ("));
   Serial.print(index);
   Serial.println(F(" chars)"));
+  // #region agent log
+  Serial.println(F("[DEBUG] dwm_receive_response EXIT: false (buffer full)"));
+  // #endregion
   return false;
 }
 
@@ -980,11 +1681,15 @@ bool perform_handshake() {
       delay(10);
     }
     
-    // Clear any pending data
+    // Clear any pending data (including null bytes and garbage)
     int cleared = 0;
-    while (DWMSerial.available()) {
-      DWMSerial.read();
-      cleared++;
+    unsigned long clearStart = millis();
+    while (DWMSerial.available() || (millis() - clearStart < 100)) {
+      if (DWMSerial.available()) {
+        DWMSerial.read();  // Discard any garbage data
+        cleared++;
+        clearStart = millis();  // Reset timer on each byte
+      }
     }
     if (cleared > 0) {
       Serial.print(F("[HANDSHAKE] Cleared "));
@@ -992,14 +1697,31 @@ bool perform_handshake() {
       Serial.println(F(" bytes before handshake"));
     }
     
+    // Wait a bit after clearing to let any initialization noise settle
+    delay(100);
+    
     // Send Node Type query (use NODE_TYPE to match DWM firmware command parser)
     Serial.println(F("[HANDSHAKE] Sending NODE_TYPE command..."));
+    
+    // CRITICAL FIX: Mark that we're waiting for response to prevent listener switching
+    waitingForDWMResponse = true;
+    
     dwm_send_command("NODE_TYPE");
-    delay(50);  // Small delay after sending
+    delay(150);  // Increased delay after sending to allow DWM to process
+    
+    // #region agent log
+    Serial.print(F("[DEBUG] After handshake send, available: "));
+    Serial.println(DWMSerial.available());
+    // #endregion
     
     // Wait for response
     Serial.println(F("[HANDSHAKE] Waiting for response..."));
-    if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
+    bool handshakeResponse = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
+    
+    // Clear the flag after response
+    waitingForDWMResponse = false;
+    
+    if (handshakeResponse) {
       Serial.print(F("[HANDSHAKE] Received: "));
       Serial.println(responseBuffer);
       
@@ -1118,5 +1840,94 @@ void update_activity_leds() {
   if (ledTxActive && currentTime >= ledTxOffTime) {
     digitalWrite(LED_TX_PIN, LOW);
     ledTxActive = false;
+  }
+}
+
+// ============================================================================
+// TEST MODE FUNCTION
+// ============================================================================
+
+/**
+ * Test DWM communication by sending test commands
+ * Called every 5 seconds when test mode is enabled
+ */
+void test_dwm_communication() {
+  unsigned long currentTime = millis();
+  
+  // Send test command every 5 seconds
+  if (currentTime - lastTestTime >= 5000) {
+    lastTestTime = currentTime;
+    
+    // #region agent log
+    Serial.println(F("[DEBUG] test_dwm_communication: About to send test command"));
+    Serial.flush();
+    // #endregion
+    
+    if (testCommandIndex >= testCommandCount) {
+      testCommandIndex = 0;
+    }
+    
+    const char* testCmd = testCommands[testCommandIndex];
+    Serial.println(F("=========================================="));
+    Serial.print(F("[TEST] Sending test command #"));
+    Serial.print(testCommandIndex + 1);
+    Serial.print(F(": \""));
+    Serial.print(testCmd);
+    Serial.println(F("\""));
+    Serial.println(F("=========================================="));
+    
+    // CRITICAL FIX: Ensure DWM listener is active and prevent switching during test
+    waitingForDWMResponse = true;
+    
+    // Clear DWM buffer before sending
+    DWMSerial.listen();
+    delay(20);  // Increased delay for listener switch
+    int cleared = 0;
+    while (DWMSerial.available()) {
+      DWMSerial.read();
+      cleared++;
+    }
+    if (cleared > 0) {
+      Serial.print(F("[TEST] Cleared "));
+      Serial.print(cleared);
+      Serial.println(F(" bytes from DWM buffer"));
+    }
+    
+    // Send command
+    // #region agent log
+    Serial.println(F("[DEBUG] About to call dwm_send_command..."));
+    Serial.flush();
+    // #endregion
+    dwm_send_command(testCmd);
+    
+    // #region agent log
+    Serial.println(F("[DEBUG] dwm_send_command returned, about to call dwm_receive_response..."));
+    Serial.flush();
+    // #endregion
+    
+    // Wait for response
+    bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
+    
+    // #region agent log
+    Serial.print(F("[DEBUG] dwm_receive_response returned: "));
+    Serial.println(responseReceived ? "true" : "false");
+    Serial.flush();
+    // #endregion
+    
+    // Clear the flag after response
+    waitingForDWMResponse = false;
+    
+    if (responseReceived) {
+      Serial.print(F("[TEST] ✅ SUCCESS - Response: \""));
+      Serial.print(responseBuffer);
+      Serial.println(F("\""));
+      blink_tx_led();
+    } else {
+      Serial.println(F("[TEST] ❌ FAILED - No response received"));
+      blink_rx_led();  // Use RX LED to indicate failure
+    }
+    
+    testCommandIndex++;
+    Serial.println(F("==========================================\n"));
   }
 }

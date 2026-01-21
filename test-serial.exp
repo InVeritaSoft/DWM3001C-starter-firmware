@@ -1,0 +1,48 @@
+#!/usr/bin/expect -f
+set port [lindex $argv 0]
+set baud 115200
+set log_file "/Users/lolibai/Documents/inverita/DWM3001C-starter-firmware/.cursor/debug.log"
+
+# Open log file
+set log [open $log_file w]
+
+proc log_entry {msg data} {
+    global log
+    set timestamp [expr [clock milliseconds]]
+    set entry "{\"timestamp\":$timestamp,\"location\":\"test-serial.exp\",\"message\":\"$msg\",\"data\":$data}\n"
+    puts $log $entry
+    flush $log
+}
+
+log_entry "Test started" "{\"port\":\"$port\",\"baud\":$baud}"
+
+# Spawn screen or cu to connect to serial port
+spawn -noecho cu -l $port -s $baud
+
+# Wait a bit for startup
+sleep 2
+
+# Send 'T' to enable test mode
+send "T"
+log_entry "Command sent" "{\"command\":\"T\"}"
+sleep 0.5
+
+# Monitor for 30 seconds
+set timeout 30
+expect {
+    timeout {
+        log_entry "Timeout" "{}"
+    }
+    eof {
+        log_entry "Connection closed" "{}"
+    }
+    -re "(.*)" {
+        set output $expect_out(0,string)
+        puts $output
+        log_entry "Serial output" "{\"line\":\"$output\"}"
+        exp_continue
+    }
+}
+
+close $log
+close

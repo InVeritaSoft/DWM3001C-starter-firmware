@@ -120,6 +120,8 @@ static dwt_txconfig_t g_tx_config; // TX power configuration
 
 /* Timer for periodic TX */
 APP_TIMER_DEF(m_tx_timer_id);
+/* Timer for ping-pong messages to Arduino (every 5 seconds) */
+APP_TIMER_DEF(m_ping_timer_id);
 
 /* Forward declarations */
 static void uart_event_handler(app_uart_evt_t *p_event);
@@ -130,6 +132,7 @@ static void configure_uwb(void);
 static void configure_tx_power(void);
 static uint16_t calculate_frame_duration_us(void);
 static void tx_timer_handler(void *p_context);
+static void ping_timer_handler(void *p_context);
 static void send_packet(void);
 
 /**
@@ -291,8 +294,8 @@ static void uart_init(void)
     // CRITICAL: Reset UART pins to default state IMMEDIATELY before APP_UART_FIFO_INIT
     // SDK may require pins to be unconfigured before UART takes control
     // Using default UART pins: TX=14 (J10 Pin 8, TXD0), RX=15 (J10 Pin 10, RXD0)
-    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
-    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10/15 (RXD0) - Confirmed working
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX
     nrf_delay_ms(20);  // Increased delay to ensure pin state is stable (was 1ms - too short!)
     
     // CRITICAL: Configure RX pin as input with pullup AFTER reset but BEFORE UART init
@@ -332,12 +335,22 @@ static void uart_init(void)
     test_run_info((unsigned char *)log_buf);
     // #endregion
 
+    // #region agent log - UART init before
+    snprintf(log_buf, sizeof(log_buf), "[DBG] UART init: RX=%d TX=%d", comm_params.rx_pin_no, comm_params.tx_pin_no);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
+    
     APP_UART_FIFO_INIT(&comm_params,
                        UART_RX_BUFFER_SIZE,
                        UART_TX_BUFFER_SIZE,
                        uart_event_handler,
                        APP_IRQ_PRIORITY_LOW,
                        p_err_code);
+    
+    // #region agent log - UART init after
+    snprintf(log_buf, sizeof(log_buf), "[DBG] UART init result: err=0x%08lX", (unsigned long)err_code);
+    test_run_info((unsigned char *)log_buf);
+    // #endregion
     
     // CRITICAL: Explicitly enable UART, interrupts, and clear any errors
     // This ensures UART is in a known good state (mimics reset button behavior)
@@ -450,17 +463,34 @@ static void send_response(const char *response)
     for (uint32_t i = 0; i < len; i++)
     {
         timeout = 1000;
-        while (app_uart_put(response[i]) != NRF_SUCCESS && timeout > 0)
+        uint32_t uart_result;
+        // #region agent log - UART put before
+        if (i == 0) {
+            snprintf(log_buf, sizeof(log_buf), "[DBG] UART put start: char='%c' (0x%02X)", response[i], (unsigned char)response[i]);
+            test_run_info((unsigned char *)log_buf);
+        }
+        // #endregion
+        while ((uart_result = app_uart_put(response[i])) != NRF_SUCCESS && timeout > 0)
         {
             timeout--;
             Sleep(1);
         }
+        // #region agent log - UART put result
+        if (uart_result != NRF_SUCCESS && timeout == 0) {
+            snprintf(log_buf, sizeof(log_buf), "[DBG] UART put FAILED: char='%c' result=0x%08lX timeout", response[i], (unsigned long)uart_result);
+            test_run_info((unsigned char *)log_buf);
+        }
+        // #endregion
         if (timeout == 0) {
             // TX failed - blink red LED to indicate error
             bsp_board_led_off(2);
             bsp_board_led_on(0);  // Red LED = error
             nrf_delay_ms(50);
             bsp_board_led_off(0);
+            // #region agent log - TX failure
+            snprintf(log_buf, sizeof(log_buf), "[DBG] TX FAILED at byte %lu/%lu", (unsigned long)i, (unsigned long)len);
+            test_run_info((unsigned char *)log_buf);
+            // #endregion
             return;  // Exit early on failure
         }
         bytes_sent++;
@@ -784,6 +814,21 @@ static void tx_timer_handler(void *p_context)
 }
 
 /**
+ * Ping timer handler - sends ping message to Arduino every 5 seconds
+ */
+static void ping_timer_handler(void *p_context)
+{
+    // #region agent log - ping timer
+    test_run_info((unsigned char *)"[DBG] ping_timer_handler called");
+    // #endregion
+    // Send ping message to Arduino
+    send_response("OK PING");
+    // #region agent log - ping sent
+    test_run_info((unsigned char *)"[DBG] ping_timer_handler: send_response called");
+    // #endregion
+}
+
+/**
  * Send a test packet
  */
 static void send_packet(void)
@@ -923,6 +968,18 @@ int orchestrator_tx_v2(void)
         if (err_code == NRF_SUCCESS)
         {
             g_timer_initialized = 1;
+        }
+        
+        /* Create ping timer for Arduino communication (every 5 seconds) */
+        err_code = app_timer_create(&m_ping_timer_id, APP_TIMER_MODE_REPEATED, ping_timer_handler);
+        if (err_code == NRF_SUCCESS)
+        {
+            /* Start ping timer: 5000ms = 5 seconds */
+            err_code = app_timer_start(m_ping_timer_id, APP_TIMER_TICKS(5000), NULL);
+            if (err_code == NRF_SUCCESS)
+            {
+                test_run_info((unsigned char *)"PING timer started (5s interval)");
+            }
         }
     }
 

@@ -25,8 +25,14 @@ echo ""
 
 # Configure for RX
 echo "[1/4] Configuring for RX firmware..."
+# Configure example_selection.h
 sed -i '' 's/^#define TEST_ORCHESTRATOR_TX_V2$/\/\/#define TEST_ORCHESTRATOR_TX_V2/' Src/example_selection.h
 sed -i '' 's/^\/\/#define TEST_ORCHESTRATOR_RX_V2$/#define TEST_ORCHESTRATOR_RX_V2/' Src/example_selection.h
+# Configure main.c to call orchestrator_rx_v2()
+# Comment out TX_V2 if it's active
+sed -i '' 's/^    extern int orchestrator_tx_v2(void); orchestrator_tx_v2();/    \/\/ extern int orchestrator_tx_v2(void); orchestrator_tx_v2();/' Src/main.c
+# Uncomment RX_V2 if it's commented
+sed -i '' 's/^    \/\/ extern int orchestrator_rx_v2(void); orchestrator_rx_v2();/    extern int orchestrator_rx_v2(void); orchestrator_rx_v2();/' Src/main.c
 echo "✓ Configured for RX"
 
 # Build
@@ -65,8 +71,9 @@ echo "[4/4] Verification..."
 echo "Node B (RX) should now:"
 echo "  - Blink RED LED twice (firmware started)"
 echo "  - Blink ORANGE LED twice (UART initialized)"
-echo "  - Blink BLUE LED twice (UART ready)"
+echo "  - Blink GREEN LED twice (UART ready)"
 echo "  - Then all LEDs off (waiting for commands)"
+echo "  - GREEN LED will blink on each byte received from Arduino"
 echo ""
 echo "✓ Node B (RX) flashed successfully!"
 echo ""

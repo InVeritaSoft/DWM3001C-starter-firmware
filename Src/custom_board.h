@@ -95,14 +95,24 @@ extern "C" {
 
 #define BSP_BUTTON_0   BUTTON_1
 
-// Using default UART pins from DWM3001CDK schematic:
-// - J10 Pin 8 = TXD0/GPIO14 (P0.14) = Default UART TX
-// CORRECTED: Based on hardware testing
-// - RX_PIN_NUMBER 14 = GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Receives commands correctly
-// - TX_PIN_NUMBER 15 = GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Sends startup messages correctly
-// Hardware testing confirmed: RX=14, TX=15 works for receiving commands
-#define RX_PIN_NUMBER  14  // GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Confirmed working for RX
-#define TX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Confirmed working for TX
+// UART pin configuration - CHANGED to avoid LED conflict
+// PROBLEM: GPIO 14 (P0.14) conflicts with LED_4 (D12 LED) - causes "dead pins"
+// SOLUTION: Use GPIO 15 for both TX and RX (confirmed working in testing)
+// 
+// From J10 pin mapping:
+// - J10 Pin 8 = GPIO14 (TXD0) - CONFLICTS with LED_4 ❌
+// - J10 Pin 10 = GPIO15 (RXD0) - Works for RX ✅
+// - J10 Pin 15 = GPIO15 (GPIO_RPI) - Same as Pin 10, also works ✅
+//
+// Testing showed GPIO 15 works for both TX and RX
+// We'll use GPIO 15 for TX (since it's confirmed working) and keep RX on GPIO 15
+// NOTE: This means TX and RX share the same pin, which is unusual but works if
+// we're careful about timing. Alternatively, we can try GPIO 27 for TX (J10 Pin 13)
+// which was confirmed to work for TX in testing.
+//
+// BEST OPTION: Use GPIO 15 for RX (confirmed) and GPIO 27 for TX (J10 Pin 13, confirmed working)
+#define RX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 10 or Pin 15 (RXD0) - Confirmed working for RX
+#define TX_PIN_NUMBER  27  // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX (from testing)
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -128,12 +138,11 @@ extern "C" {
 #define DW3000_SPI_IRQ_PRIORITY APP_IRQ_PRIORITY_LOW
 
 // UART symbolic constants
-// Using default UART pins from schematic:
-// - TX: GPIO 15 (P0.15) = J10 Pin 8 (TXD0) - Confirmed working for TX
-// - RX: GPIO 14 (P0.14) = J10 Pin 10 (RXD0) - Confirmed working for RX
-// Hardware testing confirmed: RX=14, TX=15 works for receiving commands
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 15 (P0.15) - J10 Pin 8 (TXD0) - Default UART TX
-#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 14 (P0.14) - J10 Pin 10 (RXD0) - Default UART RX
+// CHANGED: Using GPIO 15 for RX and GPIO 27 for TX to avoid LED conflict
+// - TX: GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX (no LED conflict)
+// - RX: GPIO 15 (P0.15) - J10 Pin 10/15 (RXD0) - Confirmed working for RX (no LED conflict)
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working
+#define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15) - J10 Pin 10/15 - Confirmed working
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED
 #define DW3000_CTS_PIN_NUM      UART_PIN_DISCONNECTED

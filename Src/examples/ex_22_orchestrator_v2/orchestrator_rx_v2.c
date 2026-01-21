@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include "app_uart.h"
 #include "nrf_delay.h"
+#include "app_timer.h"
 #include "nrf_error.h"
 #include "nrf_uart.h"
 #include "app_util_platform.h"
@@ -125,6 +126,9 @@ static volatile uint8_t g_test_running = 0;
 static uint8_t g_rx_buffer[FRAME_LEN_MAX];
 static dwt_deviceentcnts_t g_event_cnts = {0}; // Event counters
 
+/* Timer for ping-pong messages to Arduino (every 5 seconds) */
+APP_TIMER_DEF(m_ping_timer_id);
+
 /* Forward declarations */
 static void uart_event_handler(app_uart_evt_t *p_event);
 static void parse_command(char *cmd);
@@ -132,6 +136,7 @@ static void send_response(const char *response);
 static void send_test_char(char c);
 static void configure_uwb(void);
 static void process_rx_packet(void);
+static void ping_timer_handler(void *p_context);
 static int32_t calculate_rssi_dbm(uint32_t channel_power);
 static void update_rf_metrics(dwt_rxdiag_t *rx_diag);
 
@@ -316,8 +321,8 @@ static void uart_init(void)
     // CRITICAL: Reset UART pins to default state IMMEDIATELY before APP_UART_FIFO_INIT
     // SDK may require pins to be unconfigured before UART takes control
     // Using default UART pins: TX=14 (J10 Pin 8, TXD0), RX=15 (J10 Pin 10, RXD0)
-    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10 (RXD0)
-    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 14 (P0.14) - J10 Pin 8 (TXD0)
+    nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10/15 (RXD0) - Confirmed working
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX
     nrf_delay_ms(20);  // Increased delay to ensure pin state is stable (was 1ms - too short!)
     
     // CRITICAL: Configure RX pin as input with pullup AFTER reset but BEFORE UART init
@@ -765,6 +770,15 @@ static void configure_uwb(void)
 /**
  * Process received packet (non-blocking)
  */
+/**
+ * Ping timer handler - sends ping message to Arduino every 5 seconds
+ */
+static void ping_timer_handler(void *p_context)
+{
+    // Send ping message to Arduino
+    send_response("OK PING");
+}
+
 static void process_rx_packet(void)
 {
     uint32_t status_reg;
@@ -925,6 +939,23 @@ int orchestrator_rx_v2(void)
     test_run_info((unsigned char *)"OK STARTUP V2");
     // Commented out: send_response("OK STARTUP V2");  // Don't send unsolicited messages
     Sleep(100);
+    
+    /* Initialize app timer module for ping timer */
+    err_code = app_timer_init();
+    if (err_code == NRF_SUCCESS)
+    {
+        /* Create ping timer for Arduino communication (every 5 seconds) */
+        err_code = app_timer_create(&m_ping_timer_id, APP_TIMER_MODE_REPEATED, ping_timer_handler);
+        if (err_code == NRF_SUCCESS)
+        {
+            /* Start ping timer: 5000ms = 5 seconds */
+            err_code = app_timer_start(m_ping_timer_id, APP_TIMER_TICKS(5000), NULL);
+            if (err_code == NRF_SUCCESS)
+            {
+                test_run_info((unsigned char *)"PING timer started (5s interval)");
+            }
+        }
+    }
 
     /* Configure SPI rate */
     port_set_dw_ic_spi_fastrate();
