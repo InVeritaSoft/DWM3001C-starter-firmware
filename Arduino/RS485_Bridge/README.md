@@ -50,8 +50,8 @@ UWB Communication
 
 | Arduino Pin | DWM3001CDK Pin | Description |
 |-------------|----------------|-------------|
-| D9          | GPIO15 (J10-10, RXD0) | Arduino TX → DWM RX |
-| D8          | GPIO14 (J10-8, TXD0)  | Arduino RX ← DWM TX |
+| D9          | GPIO14 (J10-10, RXD0) | Arduino TX → DWM RX |
+| D8          | GPIO15 (J10-8, TXD0)  | Arduino RX ← DWM TX |
 | GND         | GND            | Common ground |
 
 **Important:** Do NOT connect 5V from Arduino to DWM3001CDK. The DWM3001CDK is powered separately via USB or its own power supply.
@@ -83,8 +83,8 @@ Arduino Uno:
   D3   → MAX485 DE
   D10  → MAX485 RO
   D11  → MAX485 DI
-  D8   → DWM3001CDK GPIO14 (TXD0, J10 Pin 8)
-  D9   → DWM3001CDK GPIO15 (RXD0, J10 Pin 10)
+  D8   → DWM3001CDK GPIO15 (TXD0, J10 Pin 8)
+  D9   → DWM3001CDK GPIO14 (RXD0, J10 Pin 10)
   D4   → RX LED (+ 220Ω resistor)
   D5   → TX LED (+ 220Ω resistor)
   D6   → Error LED (+ 220Ω resistor)
@@ -92,9 +92,9 @@ Arduino Uno:
   GND  → MAX485 GND, DWM3001CDK GND, LED resistors
 
 DWM3001CDK:
-  GPIO14 (J10 Pin 8)  → Arduino D8 (RX)
-  GPIO15 (J10 Pin 10) → Arduino D9 (TX)
-  GND                 → Arduino GND
+  GPIO15 (J10 Pin 8, TXD0)  → Arduino D8 (RX)
+  GPIO14 (J10 Pin 10, RXD0) → Arduino D9 (TX)
+  GND                       → Arduino GND
 ```
 
 ## Installation

@@ -8,7 +8,11 @@ if [ -z "$1" ]; then
     echo "Usage: $0 <JLINK_SERIAL>"
     echo ""
     echo "To find J-Link serial numbers, run:"
-    echo "  JLinkExe -ShowEmuList"
+    echo "  echo 'ShowEmuList' | JLinkExe"
+    echo ""
+    echo "Or interactively:"
+    echo "  JLinkExe"
+    echo "  > ShowEmuList"
     exit 1
 fi
 
