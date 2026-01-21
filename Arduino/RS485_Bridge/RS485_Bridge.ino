@@ -68,7 +68,8 @@
 // CONFIGURATION CONSTANTS
 // ============================================================================
 
-#define BAUD_RATE 57600               // Reduced from 115200 for SoftwareSerial reliability
+#define RS485_BAUD_RATE 57600         // RS485 baud rate (reduced for SoftwareSerial reliability)
+#define DWM_BAUD_RATE 115200          // DWM3001CDK baud rate (must match firmware)
 #define RS485_TX_DELAY_US 100         // Delay for RS485 transceiver switching (microseconds)
 #define COMMAND_BUFFER_SIZE 256       // Increased for long STAT responses
 #define DWM_RESPONSE_TIMEOUT_MS 5000  // Timeout for DWM response (5 seconds)
@@ -161,10 +162,12 @@ void setup() {
   Serial.println(F("[SETUP] RS485 control pins initialized"));
   
   // Initialize serial ports FIRST (before setting RS485 mode)
-  RS485Serial.begin(BAUD_RATE);
-  DWMSerial.begin(BAUD_RATE);
-  Serial.print(F("[SETUP] Serial ports initialized at "));
-  Serial.print(BAUD_RATE);
+  RS485Serial.begin(RS485_BAUD_RATE);
+  DWMSerial.begin(DWM_BAUD_RATE);
+  Serial.print(F("[SETUP] RS485 serial initialized at "));
+  Serial.print(RS485_BAUD_RATE);
+  Serial.print(F(" baud, DWM serial at "));
+  Serial.print(DWM_BAUD_RATE);
   Serial.println(F(" baud"));
   
   // Now set RS485 to receive mode (safe to flush now)
@@ -250,7 +253,7 @@ void setup() {
   Serial.println(F("[INFO] If no commands appear, check:"));
   Serial.println(F("  1. RS485 wiring (A/B, GND, VCC)"));
   Serial.println(F("  2. MAX485 DE/RE pins connected to D2/D3"));
-  Serial.println(F("  3. Baud rate matches (57600)"));
+  Serial.println(F("  3. RS485 baud rate matches (57600)"));
   Serial.println(F("  4. RS485 transceiver power"));
   Serial.println(F("  5. Orchestrator is sending commands"));
   Serial.println(F("==========================================\n"));
@@ -483,7 +486,7 @@ bool rs485_receive_command(char* buffer, int maxLen) {
           Serial.println(F("[ERROR] *** BAUD RATE MISMATCH DETECTED ***"));
           Serial.println(F("[ERROR] Received corrupted byte (0xFF or >0x7F)"));
           Serial.print(F("[ERROR] Arduino is set to: "));
-          Serial.print(BAUD_RATE);
+          Serial.print(RS485_BAUD_RATE);
           Serial.println(F(" baud"));
           Serial.println(F("[ERROR] Check orchestrator baud rate setting!"));
           Serial.println(F("[ERROR] Expected: 57600, but might be sending at 115200"));
@@ -536,7 +539,7 @@ bool rs485_receive_command(char* buffer, int maxLen) {
             Serial.print((int)c);
             Serial.println(F(")"));
             Serial.print(F("[ERROR] Arduino is receiving at: "));
-            Serial.print(BAUD_RATE);
+            Serial.print(RS485_BAUD_RATE);
             Serial.println(F(" baud"));
             Serial.println(F("[ERROR] Orchestrator might be sending at 115200 baud!"));
             Serial.println(F("[ERROR] Fix: Set orchestrator baudrate to 57600"));
@@ -693,20 +696,28 @@ bool perform_handshake() {
     Serial.print(HANDSHAKE_RETRY_COUNT);
     Serial.println(F(": Sending NT command..."));
     
-    // Send Node Type query
+    // Send Node Type query (use NODE_TYPE to match DWM firmware command parser)
     DWMSerial.listen();
-    dwm_send_command("NT");
+    dwm_send_command("NODE_TYPE");
     
     // Wait for response
     if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
       Serial.print(F("[HANDSHAKE] Received: "));
       Serial.println(responseBuffer);
       
-      // Check if response is valid (should be "OK TX_V2" or "OK RX_V2")
+      // Check if response is valid (should be "OK NODE_TYPE=TX_V2" or "OK NODE_TYPE=RX_V2")
       if (strncmp(responseBuffer, "OK ", 3) == 0) {
-        // Extract node type
-        strncpy(nodeType, responseBuffer + 3, sizeof(nodeType) - 1);
-        nodeType[sizeof(nodeType) - 1] = '\0';
+        // Extract node type from "OK NODE_TYPE=TX_V2" or "OK NODE_TYPE=RX_V2"
+        const char* nodeTypeStart = strstr(responseBuffer, "=");
+        if (nodeTypeStart != NULL) {
+          // Extract everything after "="
+          strncpy(nodeType, nodeTypeStart + 1, sizeof(nodeType) - 1);
+          nodeType[sizeof(nodeType) - 1] = '\0';
+        } else {
+          // Fallback: try to extract from "OK TX_V2" format (legacy)
+          strncpy(nodeType, responseBuffer + 3, sizeof(nodeType) - 1);
+          nodeType[sizeof(nodeType) - 1] = '\0';
+        }
         Serial.print(F("[HANDSHAKE] Success! Node type: "));
         Serial.println(nodeType);
         return true;
