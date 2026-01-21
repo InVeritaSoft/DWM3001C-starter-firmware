@@ -110,9 +110,9 @@ extern "C" {
 // we're careful about timing. Alternatively, we can try GPIO 27 for TX (J10 Pin 13)
 // which was confirmed to work for TX in testing.
 //
-// BEST OPTION: Use GPIO 15 for RX (confirmed) and GPIO 27 for TX (J10 Pin 13, confirmed working)
+// BEST OPTION: Use GPIO 15 for RX (confirmed) and GPIO 27 for TX (J10 Pin 19, confirmed working)
 #define RX_PIN_NUMBER  15  // GPIO 15 (P0.15) - J10 Pin 10 or Pin 15 (RXD0) - Confirmed working for RX
-#define TX_PIN_NUMBER  27  // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX (from testing)
+#define TX_PIN_NUMBER  27  // GPIO 27 (P0.27) - J10 Pin 19 (GPIO27_PIN19_TX) - Confirmed working for TX
 #define CTS_PIN_NUMBER (-1)
 #define RTS_PIN_NUMBER (-1)
 #define HWFC           false
@@ -139,9 +139,9 @@ extern "C" {
 
 // UART symbolic constants
 // CHANGED: Using GPIO 15 for RX and GPIO 27 for TX to avoid LED conflict
-// - TX: GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX (no LED conflict)
+// - TX: GPIO 27 (P0.27) - J10 Pin 19 (GPIO27_PIN19_TX) - Confirmed working for TX (no LED conflict)
 // - RX: GPIO 15 (P0.15) - J10 Pin 10/15 (RXD0) - Confirmed working for RX (no LED conflict)
-#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working
+#define UART_0_TX_PIN       TX_PIN_NUMBER           // GPIO 27 (P0.27) - J10 Pin 19 (GPIO27_PIN19_TX) - Confirmed working
 #define UART_0_RX_PIN       RX_PIN_NUMBER           // GPIO 15 (P0.15) - J10 Pin 10/15 - Confirmed working
 #define UART_PIN_DISCONNECTED  0xFFFFFFFF           // Disconnected pin value
 #define DW3000_RTS_PIN_NUM      UART_PIN_DISCONNECTED

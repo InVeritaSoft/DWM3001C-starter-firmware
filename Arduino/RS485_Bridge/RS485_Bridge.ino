@@ -56,10 +56,10 @@
 
 // DWM3001CDK Communication Pins
 // UPDATED: DWM firmware now uses GPIO 27 for TX and GPIO 15 for RX (to avoid LED conflict)
-// - DWM TX = GPIO 27 (P0.27) - J10 Pin 13
+// - DWM TX = GPIO 27 (P0.27) - J10 Pin 19 (GPIO27_PIN19_TX)
 // - DWM RX = GPIO 15 (P0.15) - J10 Pin 10 or Pin 15
 // Arduino connections remain the same (D8/D9), but verify wiring matches DWM pins
-#define DWM_RX_PIN 8          // Arduino RX from DWM TX (GPIO27, J10 Pin 13)
+#define DWM_RX_PIN 8          // Arduino RX from DWM TX (GPIO27, J10 Pin 19, GPIO27_PIN19_TX)
 #define DWM_TX_PIN 9          // Arduino TX to DWM RX (GPIO15, J10 Pin 10/15)
 
 // LED Indicator Pins

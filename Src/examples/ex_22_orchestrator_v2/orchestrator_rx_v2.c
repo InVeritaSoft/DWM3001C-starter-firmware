@@ -322,7 +322,7 @@ static void uart_init(void)
     // SDK may require pins to be unconfigured before UART takes control
     // Using default UART pins: TX=14 (J10 Pin 8, TXD0), RX=15 (J10 Pin 10, RXD0)
     nrf_gpio_cfg_default(UART_0_RX_PIN);  // GPIO 15 (P0.15) - J10 Pin 10/15 (RXD0) - Confirmed working
-    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 27 (P0.27) - J10 Pin 13 - Confirmed working for TX
+    nrf_gpio_cfg_default(UART_0_TX_PIN);  // GPIO 27 (P0.27) - J10 Pin 19 (GPIO27_PIN19_TX) - Confirmed working for TX
     nrf_delay_ms(20);  // Increased delay to ensure pin state is stable (was 1ms - too short!)
     
     // CRITICAL: Configure RX pin as input with pullup AFTER reset but BEFORE UART init

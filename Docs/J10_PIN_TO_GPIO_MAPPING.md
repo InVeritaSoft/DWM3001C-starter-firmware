@@ -20,13 +20,13 @@ This document maps the **physical J10 connector pin numbers** (the square pins y
 | **10** | **RXD0/GPIO15** | **P0.15** | **UART RX** | ✅ **Confirmed: Your RX pin** |
 | 11 | (NC) | - | No Connect | - |
 | 12 | RESET | ? | Reset | - |
-| **13** | **GPIO27/GPIO_GEN2** | **P0.27** | **GPIO 27** | ✅ **You connected TXD here** |
+| **13** | **GPIO27/GPIO_GEN2** | **P0.27** | **GPIO 27** | ⚠️ **Note: GPIO27 is actually on Pin 19** |
 | 14 | GND | - | Ground | - |
 | **15** | **GPIO_RPI** | **P0.15** | **GPIO 15** | ✅ **Same as Pin 10 (RXD0)** |
 | 16 | (NC) | - | No Connect | - |
 | 17 | (NC) | - | No Connect | - |
 | 18 | (NC) | - | No Connect | - |
-| **19** | **SPI1_MOSI** | **P0.19** | **SPI MOSI** | ⚠️ **DWM3001 internal TXD (not on J10)** |
+| **19** | **GPIO27/GPIO_GEN2** | **P0.27** | **GPIO 27** | ✅ **GPIO27_PIN19_TX - Confirmed TX pin** |
 
 ## Current Firmware Configuration
 
@@ -36,8 +36,8 @@ This document maps the **physical J10 connector pin numbers** (the square pins y
 #define TX_PIN_NUMBER  15  // GPIO 15 (P0.15) - Confirmed working for TX
 ```
 
-### Your Hardware Connections (from schematic):
-- **TXD (RS-485)** → **J10 Pin 13** → **GPIO 27 (P0.27)** ✅ Confirmed
+### Your Hardware Connections (CONFIRMED BY TESTING):
+- **TXD (RS-485)** → **J10 Pin 19** → **GPIO 27 (P0.27)** ✅ **GPIO27_PIN19_TX - Confirmed by testing**
 - **RXD (RS-485)** → **J10 Pin 10** → **GPIO 15 (P0.15)** ✅ Confirmed (RXD0/GPIO15)
 
 ### Alternative UART Pins (from schematic):
@@ -48,15 +48,13 @@ This document maps the **physical J10 connector pin numbers** (the square pins y
 
 | Configuration | TX Pin | RX Pin | Result |
 |---------------|--------|--------|--------|
-| Test 1 | GPIO 27 (Pin 13) | GPIO 15 (Pin 15) | ✅ RX works (commands received)<br>❌ TX doesn't work (no responses) |
-| Test 2 | GPIO 15 (Pin 15) | GPIO 27 (Pin 13) | ✅ TX works (startup messages)<br>❌ RX doesn't work (no commands) |
-| Current | GPIO 15 (Pin 15) | GPIO 16 (Pin ?) | 🔄 Testing... |
+| **Current (CONFIRMED)** | **GPIO 27 (Pin 19)** | **GPIO 15 (Pin 10)** | ✅ **TX works (GPIO27_PIN19_TX)**<br>✅ **RX works (GPIO15)** |
 
-## Key Findings
+## Key Findings (CONFIRMED BY TESTING)
 
-1. **GPIO 15 (P0.15)** = J10 Pin 15 = Works for **both TX and RX** ✅
-2. **GPIO 27 (P0.27)** = J10 Pin 13 = Works for **TX only** ✅ (RX doesn't work) ❌
-3. **GPIO 16 (P0.16)** = Testing for RX (pin location unknown)
+1. **GPIO 15 (P0.15)** = J10 Pin 10/15 = Works for **RX** ✅
+2. **GPIO 27 (P0.27)** = **J10 Pin 19** = Works for **TX only** ✅ **GPIO27_PIN19_TX** (RX doesn't work) ❌
+3. **⚠️ IMPORTANT**: GPIO27 is on **J10 Pin 19**, NOT Pin 13 as originally documented
 
 ## Problem Identified
 
@@ -65,11 +63,12 @@ This document maps the **physical J10 connector pin numbers** (the square pins y
 - But **software TX=15** works (sends on GPIO 15 = J10 Pin 10 or Pin 15)
 - This means startup messages go to **GPIO 15**, not **GPIO 27** (Pin 13)!
 
-**Important Discovery from Schematic:**
+**Confirmed Pin Mapping (by testing):**
 - **J10 Pin 8** = **P0.14** = **TXD0** (Default UART TX pin)
-- **J10 Pin 10** = **P0.15** = **RXD0** (Default UART RX pin)
-- **J10 Pin 13** = **P0.27** = **GPIO27** (Your current TXD connection)
+- **J10 Pin 10** = **P0.15** = **RXD0** (Default UART RX pin) ✅ **Confirmed RX pin**
+- **J10 Pin 13** = **P0.27** = **GPIO27** (⚠️ **Note: GPIO27 is actually on Pin 19**)
 - **J10 Pin 15** = **P0.15** = **GPIO_RPI** (Same as Pin 10, also P0.15)
+- **J10 Pin 19** = **P0.27** = **GPIO27** ✅ **GPIO27_PIN19_TX - Confirmed TX pin**
 
 ## Solutions
 
@@ -85,9 +84,9 @@ Keep **RXD** on **J10 Pin 10** (GPIO 15), move **TXD** to **J10 Pin 10 or Pin 15
 - **RXD (RS-485)** → **J10 Pin 10** → **GPIO 15 (P0.15)**
 - ⚠️ **Problem**: Can't use same pin for TX and RX simultaneously!
 
-### Option 3: Use GPIO 27 for TX (Match Your Hardware)
-Keep **TXD** on **J10 Pin 13** (GPIO 27), keep **RXD** on **J10 Pin 10** (GPIO 15):
-- **TXD (RS-485)** → **J10 Pin 13** → **GPIO 27 (P0.27)**
+### Option 3: Use GPIO 27 for TX (✅ CURRENT CONFIGURATION - CONFIRMED)
+Keep **TXD** on **J10 Pin 19** (GPIO 27), keep **RXD** on **J10 Pin 10** (GPIO 15):
+- **TXD (RS-485)** → **J10 Pin 19** → **GPIO 27 (P0.27)** ✅ **GPIO27_PIN19_TX**
 - **RXD (RS-485)** → **J10 Pin 10** → **GPIO 15 (P0.15)**
 - Set software: `TX_PIN_NUMBER = 27`, `RX_PIN_NUMBER = 15`
 
@@ -105,7 +104,7 @@ From the schematic:
 - **"Square pin"** = Physical pins showing UART activity (square wave signals):
   - **J10 Pin 8** (P0.14) = TXD0 - shows TX activity
   - **J10 Pin 10** (P0.15) = RXD0 - shows RX activity
-  - **J10 Pin 13** (P0.27) = Your TX pin - shows TX activity when configured
+  - **J10 Pin 19** (P0.27) = **GPIO27_PIN19_TX** - Your TX pin - shows TX activity when configured ✅
 
 ## Notes
 
