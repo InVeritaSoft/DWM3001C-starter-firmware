@@ -68,9 +68,9 @@
 // CONFIGURATION CONSTANTS
 // ============================================================================
 
-#define BAUD_RATE 57600               // Reduced from 115200 for SoftwareSerial reliability
+#define BAUD_RATE 115200              // Serial communication baud rate
 #define RS485_TX_DELAY_US 100         // Delay for RS485 transceiver switching (microseconds)
-#define COMMAND_BUFFER_SIZE 256       // Increased for long STAT responses
+#define COMMAND_BUFFER_SIZE 256       // Maximum command length
 #define DWM_RESPONSE_TIMEOUT_MS 5000  // Timeout for DWM response (5 seconds)
 #define HANDSHAKE_RETRY_COUNT 3       // Number of handshake retries
 #define HEARTBEAT_INTERVAL_MS 500     // Heartbeat LED blink interval
@@ -125,25 +125,11 @@ void update_activity_leds();
 // ============================================================================
 
 void setup() {
-  // Initialize Serial for debugging (USB serial port)
-  Serial.begin(115200);
-  
-  // Wait for serial port to stabilize and clear any garbage data
-  // This prevents garbled characters at startup
-  while (!Serial) {
-    ; // Wait for serial port to connect (needed for native USB boards)
-  }
-  delay(100);  // Additional stabilization delay
-  Serial.flush();  // Clear any pending data
-  
-  Serial.println(F("\n=== RS485 Bridge Firmware Starting ==="));
-  
   // Initialize LED pins as outputs
   pinMode(LED_RX_PIN, OUTPUT);
   pinMode(LED_TX_PIN, OUTPUT);
   pinMode(LED_ERROR_PIN, OUTPUT);
   pinMode(LED_HEARTBEAT_PIN, OUTPUT);
-  Serial.println(F("[SETUP] LED pins initialized"));
   
   // Initialize all LEDs to OFF
   digitalWrite(LED_RX_PIN, LOW);
@@ -151,27 +137,19 @@ void setup() {
   digitalWrite(LED_ERROR_PIN, LOW);
   digitalWrite(LED_HEARTBEAT_PIN, LOW);
   
-  // Initialize RS485 control pins (but don't set mode yet - serial not initialized)
+  // Initialize RS485 control pins
   pinMode(RS485_DE_PIN, OUTPUT);
   pinMode(RS485_RE_PIN, OUTPUT);
-  Serial.println(F("[SETUP] RS485 control pins initialized"));
+  set_rs485_rx_mode();  // Default to receive mode
   
-  // Initialize serial ports FIRST (before setting RS485 mode)
+  // Initialize serial ports
   RS485Serial.begin(BAUD_RATE);
   DWMSerial.begin(BAUD_RATE);
-  Serial.print(F("[SETUP] Serial ports initialized at "));
-  Serial.print(BAUD_RATE);
-  Serial.println(F(" baud"));
-  
-  // Now set RS485 to receive mode (safe to flush now)
-  set_rs485_rx_mode();
-  Serial.println(F("[SETUP] RS485 set to RX mode"));
   
   // Small delay for serial ports to stabilize
   delay(100);
   
   // Blink all LEDs to indicate startup
-  Serial.println(F("[SETUP] Startup LED sequence"));
   digitalWrite(LED_RX_PIN, HIGH);
   digitalWrite(LED_TX_PIN, HIGH);
   digitalWrite(LED_ERROR_PIN, HIGH);
@@ -184,12 +162,9 @@ void setup() {
   delay(200);
   
   // Perform handshake with DWM3001CDK
-  Serial.println(F("[SETUP] Starting handshake with DWM3001CDK..."));
   handshakeComplete = perform_handshake();
   
   if (handshakeComplete) {
-    Serial.print(F("[SETUP] Handshake SUCCESS - Node Type: "));
-    Serial.println(nodeType);
     // Success - blink heartbeat LED 3 times rapidly
     for (int i = 0; i < 3; i++) {
       digitalWrite(LED_HEARTBEAT_PIN, HIGH);
@@ -198,7 +173,6 @@ void setup() {
       delay(100);
     }
   } else {
-    Serial.println(F("[SETUP] Handshake FAILED - Error LED active"));
     // Handshake failed - blink error LED rapidly
     for (int i = 0; i < 10; i++) {
       digitalWrite(LED_ERROR_PIN, HIGH);
@@ -212,8 +186,6 @@ void setup() {
   
   // Initialize heartbeat timer
   lastHeartbeatTime = millis();
-  Serial.println(F("[SETUP] Initialization complete - entering main loop"));
-  Serial.println(F("==========================================\n"));
 }
 
 // ============================================================================
@@ -221,11 +193,6 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Ensure we are listening to RS485 for incoming commands
-  if (!RS485Serial.isListening()) {
-    RS485Serial.listen();
-  }
-  
   // Update heartbeat LED
   update_heartbeat();
   
@@ -234,47 +201,28 @@ void loop() {
   
   // Check if command received from RS485
   if (RS485Serial.available()) {
-    // Show activity detected and the first byte in hex to help diagnose baud/wiring issues
-    Serial.print(F("[RS485] Activity detected (0x"));
-    if (RS485Serial.peek() < 0x10) Serial.print('0');
-    Serial.print(RS485Serial.peek(), HEX);
-    Serial.println(F("), receiving command..."));
-    
     if (rs485_receive_command(commandBuffer, COMMAND_BUFFER_SIZE)) {
       // Valid command received - blink RX LED
-      Serial.print(F("[RS485->] Received: "));
-      Serial.println(commandBuffer);
       blink_rx_led();
       
       // Forward command to DWM3001CDK
-      Serial.print(F("[->DWM] Sending: "));
-      Serial.println(commandBuffer);
-      DWMSerial.listen(); // Switch listener to DWM before sending to catch immediate response
       dwm_send_command(commandBuffer);
       
       // Wait for response from DWM3001CDK
       if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
         // Valid response received - send to orchestrator
-        Serial.print(F("[DWM->] Response: "));
-        Serial.println(responseBuffer);
         blink_tx_led();
         rs485_send_response(responseBuffer);
-        Serial.print(F("[->RS485] Sent: "));
-        Serial.println(responseBuffer);
         
         // Clear error LED if it was on
         if (!handshakeComplete) {
           handshakeComplete = true;
           set_error_led(false);
-          Serial.println(F("[STATUS] Handshake recovered - Error LED cleared"));
         }
       } else {
         // No response or timeout - send error
-        Serial.println(F("[ERROR] DWM3001CDK timeout - no response received"));
         send_error("DWM_NO_RESPONSE");
       }
-    } else {
-      Serial.println(F("[WARN] Failed to receive valid command from RS485"));
     }
   }
   
@@ -301,8 +249,7 @@ void set_rs485_tx_mode() {
  * DE=LOW, RE=LOW
  */
 void set_rs485_rx_mode() {
-  // No flush needed for SoftwareSerial as print() is blocking
-  // RS485Serial.flush(); 
+  RS485Serial.flush();  // Wait for transmission to complete
   delayMicroseconds(RS485_TX_DELAY_US);  // Wait for last bit to transmit
   digitalWrite(RS485_DE_PIN, LOW);
   digitalWrite(RS485_RE_PIN, LOW);
@@ -331,7 +278,7 @@ bool rs485_receive_command(char* buffer, int maxLen) {
           buffer[index] = '\0';  // Null terminate
           return true;
         }
-        // Skip leading/empty terminators
+        // Empty line, continue reading
       } else {
         buffer[index++] = c;
       }
@@ -343,18 +290,14 @@ bool rs485_receive_command(char* buffer, int maxLen) {
     if (millis() - startTime > 1000) {
       if (index > 0) {
         buffer[index] = '\0';
-        Serial.print(F("[WARN] RS485 command timeout, partial: "));
-        Serial.println(buffer);
         return true;  // Return partial command
       }
-      Serial.println(F("[WARN] RS485 command receive timeout"));
       return false;
     }
   }
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
-  Serial.println(F("[ERROR] RS485 command buffer full"));
   return false;
 }
 
@@ -374,8 +317,8 @@ void rs485_send_response(const char* response) {
     RS485Serial.print("\r\n");
   }
   
-  // Wait for transmission to complete (blocking in SoftwareSerial)
-  // RS485Serial.flush();
+  // Wait for transmission to complete
+  RS485Serial.flush();
   
   set_rs485_rx_mode();
 }
@@ -390,7 +333,7 @@ void rs485_send_response(const char* response) {
 void dwm_send_command(const char* command) {
   DWMSerial.print(command);
   DWMSerial.print("\r\n");  // Always add terminators
-  // DWMSerial.flush(); // Removed: would clear RX buffer immediately after sending
+  DWMSerial.flush();
 }
 
 /**
@@ -424,18 +367,14 @@ bool dwm_receive_response(char* buffer, int maxLen) {
     if (millis() - startTime > DWM_RESPONSE_TIMEOUT_MS) {
       if (index > 0) {
         buffer[index] = '\0';
-        Serial.print(F("[WARN] DWM response timeout, partial: "));
-        Serial.println(buffer);
         return true;  // Return partial response
       }
-      Serial.println(F("[WARN] DWM response timeout - no data received"));
       return false;  // No response
     }
   }
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
-  Serial.println(F("[ERROR] DWM response buffer full"));
   return false;
 }
 
@@ -453,59 +392,31 @@ bool perform_handshake() {
   delay(500);
   
   // Clear any pending data
-  int cleared = 0;
   while (DWMSerial.available()) {
     DWMSerial.read();
-    cleared++;
-  }
-  if (cleared > 0) {
-    Serial.print(F("[HANDSHAKE] Cleared "));
-    Serial.print(cleared);
-    Serial.println(F(" bytes from DWM serial buffer"));
   }
   
   // Try handshake multiple times
   for (int attempt = 0; attempt < HANDSHAKE_RETRY_COUNT; attempt++) {
-    Serial.print(F("[HANDSHAKE] Attempt "));
-    Serial.print(attempt + 1);
-    Serial.print(F("/"));
-    Serial.print(HANDSHAKE_RETRY_COUNT);
-    Serial.println(F(": Sending NT command..."));
-    
     // Send Node Type query
-    DWMSerial.listen();
     dwm_send_command("NT");
     
     // Wait for response
     if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
-      Serial.print(F("[HANDSHAKE] Received: "));
-      Serial.println(responseBuffer);
-      
       // Check if response is valid (should be "OK TX_V2" or "OK RX_V2")
       if (strncmp(responseBuffer, "OK ", 3) == 0) {
         // Extract node type
         strncpy(nodeType, responseBuffer + 3, sizeof(nodeType) - 1);
         nodeType[sizeof(nodeType) - 1] = '\0';
-        Serial.print(F("[HANDSHAKE] Success! Node type: "));
-        Serial.println(nodeType);
         return true;
-      } else {
-        Serial.print(F("[HANDSHAKE] Invalid response format: "));
-        Serial.println(responseBuffer);
       }
-    } else {
-      Serial.println(F("[HANDSHAKE] No response received"));
     }
     
     // Wait before retry
-    if (attempt < HANDSHAKE_RETRY_COUNT - 1) {
-      Serial.println(F("[HANDSHAKE] Retrying in 500ms..."));
-      delay(500);
-    }
+    delay(500);
   }
   
   // Handshake failed
-  Serial.println(F("[HANDSHAKE] All attempts failed"));
   strcpy(nodeType, "UNKNOWN");
   return false;
 }
@@ -518,10 +429,8 @@ bool perform_handshake() {
  * Send error response to orchestrator
  */
 void send_error(const char* errorType) {
-  char errorMsg[32];  // Reduced from 64 to save memory
+  char errorMsg[64];
   snprintf(errorMsg, sizeof(errorMsg), "ERR_%s", errorType);
-  Serial.print(F("[ERROR] Sending error: "));
-  Serial.println(errorMsg);
   rs485_send_response(errorMsg);
   
   // Blink error LED
