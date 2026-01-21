@@ -215,6 +215,42 @@ void setup() {
   digitalWrite(LED_HEARTBEAT_PIN, LOW);
   delay(200);
   
+  // CRITICAL: Check if DWM3001CDK is sending data BEFORE handshake
+  // DWM3001CDK sends startup messages immediately after boot
+  Serial.println(F("[SETUP] Checking for DWM3001CDK startup messages..."));
+  delay(1000);  // Wait for DWM3001CDK to send startup messages
+  
+  DWMSerial.listen();  // Switch to DWM serial
+  int startupBytes = 0;
+  unsigned long checkStart = millis();
+  while (millis() - checkStart < 2000) {  // Check for 2 seconds
+    if (DWMSerial.available()) {
+      char c = DWMSerial.read();
+      startupBytes++;
+      Serial.print(c);  // Print character directly
+      if (startupBytes > 200) break;  // Prevent buffer overflow
+    }
+  }
+  
+  if (startupBytes > 0) {
+    Serial.println();
+    Serial.print(F("[SETUP] Received "));
+    Serial.print(startupBytes);
+    Serial.println(F(" bytes from DWM3001CDK - communication is working!"));
+  } else {
+    Serial.println(F("[SETUP] WARNING: No startup messages received from DWM3001CDK"));
+    Serial.println(F("[SETUP] Check:"));
+    Serial.println(F("  1. DWM3001CDK is powered on"));
+    Serial.println(F("  2. Wiring: DWM GPIO14→Arduino D8, DWM GPIO15→Arduino D9"));
+    Serial.println(F("  3. DWM3001CDK firmware is flashed and running"));
+    Serial.println(F("  4. DWM3001CDK UART is enabled (should send startup messages)"));
+  }
+  
+  // Clear any remaining data
+  while (DWMSerial.available()) {
+    DWMSerial.read();
+  }
+  
   // Perform handshake with DWM3001CDK
   Serial.println(F("[SETUP] Starting handshake with DWM3001CDK..."));
   handshakeComplete = perform_handshake();
@@ -372,11 +408,30 @@ void loop() {
       Serial.print(F("[->DWM] Forwarding command: \""));
       Serial.print(commandBuffer);
       Serial.println(F("\""));
-      DWMSerial.listen(); // Switch listener to DWM before sending to catch immediate response
+      
+      // CRITICAL: Switch listener to DWM BEFORE sending
+      if (!DWMSerial.isListening()) {
+        Serial.println(F("[->DWM] Switching listener to DWM serial..."));
+        DWMSerial.listen();
+        delay(10);  // Small delay for listener switch
+      }
+      
+      // Clear any pending data from DWM before sending
+      int cleared = 0;
+      while (DWMSerial.available()) {
+        DWMSerial.read();
+        cleared++;
+      }
+      if (cleared > 0) {
+        Serial.print(F("[->DWM] Cleared "));
+        Serial.print(cleared);
+        Serial.println(F(" bytes from DWM buffer before sending"));
+      }
+      
       dwm_send_command(commandBuffer);
+      Serial.println(F("[->DWM] Command sent, waiting for response..."));
       
       // Wait for response from DWM3001CDK
-      Serial.println(F("[DWM] Waiting for response..."));
       if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
         // Valid response received - send to orchestrator
         Serial.print(F("[DWM->] Response received: \""));
@@ -625,18 +680,65 @@ void dwm_send_command(const char* command) {
 bool dwm_receive_response(char* buffer, int maxLen) {
   int index = 0;
   unsigned long startTime = millis();
+  bool firstChar = true;
+  int bytesReceived = 0;
+  
+  Serial.print(F("[DWM RX] Waiting for response (timeout="));
+  Serial.print(DWM_RESPONSE_TIMEOUT_MS);
+  Serial.println(F("ms)..."));
+  
+  // Check if DWM serial is listening
+  if (!DWMSerial.isListening()) {
+    Serial.println(F("[DWM RX] WARNING: DWM serial not listening! Switching..."));
+    DWMSerial.listen();
+    delay(10);
+  }
+  
+  // Check initial availability
+  int initialAvailable = DWMSerial.available();
+  if (initialAvailable > 0) {
+    Serial.print(F("[DWM RX] Already have "));
+    Serial.print(initialAvailable);
+    Serial.println(F(" bytes available"));
+  }
   
   while (index < maxLen - 1) {
     if (DWMSerial.available()) {
       char c = DWMSerial.read();
+      bytesReceived++;
+      
+      // Log first few characters for debugging
+      if (firstChar) {
+        Serial.print(F("[DWM RX] First char: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" ('"));
+        if (c >= 32 && c < 127) {
+          Serial.print(c);
+        } else if (c == '\r') {
+          Serial.print(F("\\r"));
+        } else if (c == '\n') {
+          Serial.print(F("\\n"));
+        } else {
+          Serial.print('.');
+        }
+        Serial.println(F("')"));
+        firstChar = false;
+      }
       
       // Check for response terminator
       if (c == '\r' || c == '\n') {
         if (index > 0) {  // Only accept if we have data
           buffer[index] = '\0';  // Null terminate
+          Serial.print(F("[DWM RX] Response complete: \""));
+          Serial.print(buffer);
+          Serial.print(F("\" ("));
+          Serial.print(index);
+          Serial.println(F(" chars)"));
           return true;
         }
         // Empty line, continue reading
+        Serial.println(F("[DWM RX] Empty line, continuing..."));
       } else {
         buffer[index++] = c;
       }
@@ -645,21 +747,40 @@ bool dwm_receive_response(char* buffer, int maxLen) {
     }
     
     // Timeout check
-    if (millis() - startTime > DWM_RESPONSE_TIMEOUT_MS) {
+    unsigned long elapsed = millis() - startTime;
+    if (elapsed > DWM_RESPONSE_TIMEOUT_MS) {
       if (index > 0) {
         buffer[index] = '\0';
-        Serial.print(F("[WARN] DWM response timeout, partial: "));
-        Serial.println(buffer);
+        Serial.print(F("[WARN] DWM response timeout, partial: \""));
+        Serial.print(buffer);
+        Serial.print(F("\" ("));
+        Serial.print(index);
+        Serial.println(F(" chars)"));
         return true;  // Return partial response
       }
-      Serial.println(F("[WARN] DWM response timeout - no data received"));
+      Serial.print(F("[WARN] DWM response timeout - no data received (checked for "));
+      Serial.print(elapsed);
+      Serial.print(F("ms, bytes seen: "));
+      Serial.print(bytesReceived);
+      Serial.println(F(")"));
+      
+      // Diagnostic: Check if DWM serial is still available
+      int stillAvailable = DWMSerial.available();
+      if (stillAvailable > 0) {
+        Serial.print(F("[WARN] DWM serial still has "));
+        Serial.print(stillAvailable);
+        Serial.println(F(" bytes available - possible parsing issue"));
+      }
+      
       return false;  // No response
     }
   }
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
-  Serial.println(F("[ERROR] DWM response buffer full"));
+  Serial.print(F("[ERROR] DWM response buffer full ("));
+  Serial.print(index);
+  Serial.println(F(" chars)"));
   return false;
 }
 
@@ -694,13 +815,34 @@ bool perform_handshake() {
     Serial.print(attempt + 1);
     Serial.print(F("/"));
     Serial.print(HANDSHAKE_RETRY_COUNT);
-    Serial.println(F(": Sending NT command..."));
+    Serial.println(F(": Sending NODE_TYPE command..."));
+    
+    // CRITICAL: Ensure DWM serial is listening
+    if (!DWMSerial.isListening()) {
+      Serial.println(F("[HANDSHAKE] Switching listener to DWM serial..."));
+      DWMSerial.listen();
+      delay(10);
+    }
+    
+    // Clear any pending data
+    int cleared = 0;
+    while (DWMSerial.available()) {
+      DWMSerial.read();
+      cleared++;
+    }
+    if (cleared > 0) {
+      Serial.print(F("[HANDSHAKE] Cleared "));
+      Serial.print(cleared);
+      Serial.println(F(" bytes before handshake"));
+    }
     
     // Send Node Type query (use NODE_TYPE to match DWM firmware command parser)
-    DWMSerial.listen();
+    Serial.println(F("[HANDSHAKE] Sending NODE_TYPE command..."));
     dwm_send_command("NODE_TYPE");
+    delay(50);  // Small delay after sending
     
     // Wait for response
+    Serial.println(F("[HANDSHAKE] Waiting for response..."));
     if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
       Serial.print(F("[HANDSHAKE] Received: "));
       Serial.println(responseBuffer);
