@@ -180,6 +180,21 @@ void setup() {
   Serial.print(F("[SETUP] RS485 RE pin (should be LOW): "));
   Serial.println(digitalRead(RS485_RE_PIN) ? "HIGH" : "LOW");
   
+  // CRITICAL: Power Check - MAX485 needs 5V power!
+  Serial.println(F("[SETUP] =========================================="));
+  Serial.println(F("[SETUP] POWER CHECK - MAX485 Module"));
+  Serial.println(F("[SETUP] =========================================="));
+  Serial.println(F("[SETUP] MAX485 Module MUST be powered:"));
+  Serial.println(F("[SETUP]   VCC → Arduino 5V pin"));
+  Serial.println(F("[SETUP]   GND → Arduino GND pin"));
+  Serial.println(F("[SETUP]"));
+  Serial.println(F("[SETUP] If commands don't reach Arduino:"));
+  Serial.println(F("[SETUP]   1. Check MAX485 VCC is connected to Arduino 5V"));
+  Serial.println(F("[SETUP]   2. Check MAX485 GND is connected to Arduino GND"));
+  Serial.println(F("[SETUP]   3. Measure MAX485 VCC-GND voltage = 5.0V"));
+  Serial.println(F("[SETUP]   4. Verify Arduino 5V pin outputs 5.0V"));
+  Serial.println(F("[SETUP] =========================================="));
+  
   // Test RS485 serial port
   Serial.print(F("[SETUP] RS485 serial port status: "));
   Serial.print(F("Listening="));
@@ -217,38 +232,97 @@ void setup() {
   
   // CRITICAL: Check if DWM3001CDK is sending data BEFORE handshake
   // DWM3001CDK sends startup messages immediately after boot
+  Serial.println(F("[SETUP] =========================================="));
+  Serial.println(F("[SETUP] DWM3001CDK Communication Check"));
+  Serial.println(F("[SETUP] =========================================="));
   Serial.println(F("[SETUP] Checking for DWM3001CDK startup messages..."));
-  delay(1000);  // Wait for DWM3001CDK to send startup messages
+  Serial.println(F("[SETUP] DWM3001CDK should send: OK STARTUP, OK FIRMWARE_RUNNING"));
   
   DWMSerial.listen();  // Switch to DWM serial
+  delay(100);  // Small delay for listener switch
+  
   int startupBytes = 0;
+  char startupBuffer[256] = {0};
+  int startupIndex = 0;
   unsigned long checkStart = millis();
-  while (millis() - checkStart < 2000) {  // Check for 2 seconds
+  
+  Serial.println(F("[SETUP] Listening for 3 seconds..."));
+  while (millis() - checkStart < 3000) {  // Check for 3 seconds
     if (DWMSerial.available()) {
       char c = DWMSerial.read();
       startupBytes++;
-      Serial.print(c);  // Print character directly
-      if (startupBytes > 200) break;  // Prevent buffer overflow
+      
+      // Store in buffer for analysis
+      if (startupIndex < sizeof(startupBuffer) - 1) {
+        startupBuffer[startupIndex++] = c;
+      }
+      
+      // Print character directly (for immediate feedback)
+      if (c >= 32 && c < 127) {
+        Serial.print(c);
+      } else if (c == '\r') {
+        Serial.print(F("\\r"));
+      } else if (c == '\n') {
+        Serial.print(F("\\n"));
+        Serial.println();
+      } else {
+        Serial.print(F("."));
+      }
+      
+      if (startupBytes > 500) break;  // Prevent buffer overflow
     }
   }
   
+  Serial.println();
+  Serial.println(F("[SETUP] =========================================="));
+  
   if (startupBytes > 0) {
-    Serial.println();
-    Serial.print(F("[SETUP] Received "));
+    startupBuffer[startupIndex] = '\0';  // Null terminate
+    Serial.print(F("[SETUP] ✅ Received "));
     Serial.print(startupBytes);
-    Serial.println(F(" bytes from DWM3001CDK - communication is working!"));
+    Serial.println(F(" bytes from DWM3001CDK"));
+    Serial.print(F("[SETUP] Data: \""));
+    Serial.print(startupBuffer);
+    Serial.println(F("\""));
+    
+    // Check if we got expected startup messages
+    String startupStr = String(startupBuffer);
+    if (startupStr.indexOf("OK STARTUP") >= 0 || startupStr.indexOf("OK FIRMWARE") >= 0) {
+      Serial.println(F("[SETUP] ✅ DWM3001CDK firmware is running!"));
+    } else {
+      Serial.println(F("[SETUP] ⚠️  Received data but not expected startup messages"));
+      Serial.println(F("[SETUP]    DWM3001CDK might be in wrong state or wrong firmware"));
+    }
   } else {
-    Serial.println(F("[SETUP] WARNING: No startup messages received from DWM3001CDK"));
-    Serial.println(F("[SETUP] Check:"));
-    Serial.println(F("  1. DWM3001CDK is powered on"));
-    Serial.println(F("  2. Wiring: DWM GPIO14→Arduino D8, DWM GPIO15→Arduino D9"));
-    Serial.println(F("  3. DWM3001CDK firmware is flashed and running"));
-    Serial.println(F("  4. DWM3001CDK UART is enabled (should send startup messages)"));
+    Serial.println(F("[SETUP] ❌ WARNING: No startup messages received from DWM3001CDK"));
+    Serial.println(F("[SETUP] =========================================="));
+    Serial.println(F("[SETUP] Troubleshooting:"));
+    Serial.println(F("[SETUP]   1. DWM3001CDK powered on? (check power LED)"));
+    Serial.println(F("[SETUP]   2. Wiring correct?"));
+    Serial.println(F("[SETUP]      - DWM GPIO14 (TX) → Arduino D8 (RX)"));
+    Serial.println(F("[SETUP]      - DWM GPIO15 (RX) → Arduino D9 (TX)"));
+    Serial.println(F("[SETUP]      - DWM GND → Arduino GND"));
+    Serial.println(F("[SETUP]   3. DWM3001CDK firmware flashed?"));
+    Serial.println(F("[SETUP]      - Should be orchestrator_rx.c or orchestrator_tx.c"));
+    Serial.println(F("[SETUP]      - Check with: .\\build-and-flash-rx.ps1 or .\\build-and-flash-tx.ps1"));
+    Serial.println(F("[SETUP]   4. Baud rate match?"));
+    Serial.println(F("[SETUP]      - Arduino expects: 115200 baud"));
+    Serial.println(F("[SETUP]      - DWM3001CDK should use: 115200 baud"));
+    Serial.println(F("[SETUP]   5. DWM3001CDK UART enabled?"));
+    Serial.println(F("[SETUP]      - Firmware should initialize UART on GPIO14/15"));
+    Serial.println(F("[SETUP] =========================================="));
   }
   
   // Clear any remaining data
+  int cleared = 0;
   while (DWMSerial.available()) {
     DWMSerial.read();
+    cleared++;
+  }
+  if (cleared > 0) {
+    Serial.print(F("[SETUP] Cleared "));
+    Serial.print(cleared);
+    Serial.println(F(" additional bytes from DWM buffer"));
   }
   
   // Perform handshake with DWM3001CDK
@@ -356,6 +430,14 @@ void loop() {
         Serial.print('.');
       }
       Serial.println(F("')"));
+    } else {
+      // No data available - check if MAX485 might not be powered
+      // Only print warning every 10 seconds to avoid spam
+      static unsigned long lastPowerWarning = 0;
+      if (currentTime - lastPowerWarning > 10000) {
+        lastPowerWarning = currentTime;
+        Serial.println(F("[RS485] No data received - check MAX485 power (VCC→5V, GND→GND)"));
+      }
     }
   }
   
@@ -404,14 +486,15 @@ void loop() {
       
       blink_rx_led();
       
-      // Forward command to DWM3001CDK
+      // Forward command to DWM3001CDK - TRANSPARENT BRIDGE
+      // Send EXACTLY what orchestrator sent - no modification
       Serial.print(F("[->DWM] Forwarding command: \""));
       Serial.print(commandBuffer);
       Serial.println(F("\""));
       
       // CRITICAL: Switch listener to DWM BEFORE sending
+      // RS485 is now in RX mode (DE=LOW, RE=LOW), so we can switch to DWM
       if (!DWMSerial.isListening()) {
-        Serial.println(F("[->DWM] Switching listener to DWM serial..."));
         DWMSerial.listen();
         delay(10);  // Small delay for listener switch
       }
@@ -425,20 +508,24 @@ void loop() {
       if (cleared > 0) {
         Serial.print(F("[->DWM] Cleared "));
         Serial.print(cleared);
-        Serial.println(F(" bytes from DWM buffer before sending"));
+        Serial.println(F(" bytes from DWM buffer"));
       }
       
+      // Send command EXACTLY as orchestrator sent it (commandBuffer already has the command)
+      // DWM3001CDK expects: "PNG\r\n", "NODE_TYPE\r\n", etc.
+      // We forward the exact command string, then add \r\n terminator
       dwm_send_command(commandBuffer);
-      Serial.println(F("[->DWM] Command sent, waiting for response..."));
       
       // Wait for response from DWM3001CDK
       if (dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE)) {
         // Valid response received - send to orchestrator
-        Serial.print(F("[DWM->] Response received: \""));
+        Serial.println(F("[DWM->] =========================================="));
+        Serial.print(F("[DWM->] ✅ Response received: \""));
         Serial.print(responseBuffer);
         Serial.print(F("\" (len="));
         Serial.print(strlen(responseBuffer));
         Serial.println(F(")"));
+        Serial.println(F("[DWM->] =========================================="));
         blink_tx_led();
         
         Serial.print(F("[->RS485] Sending response to orchestrator: \""));
@@ -454,8 +541,30 @@ void loop() {
           Serial.println(F("[STATUS] Handshake recovered - Error LED cleared"));
         }
       } else {
-        // No response or timeout - send error
-        Serial.println(F("[ERROR] DWM3001CDK timeout - no response received"));
+        // No response or timeout - send error with detailed diagnostics
+        Serial.println(F("[ERROR] =========================================="));
+        Serial.println(F("[ERROR] ❌ DWM3001CDK timeout - no response received"));
+        Serial.println(F("[ERROR] =========================================="));
+        Serial.println(F("[ERROR] Diagnostics:"));
+        Serial.print(F("[ERROR]   Command sent: \""));
+        Serial.print(commandBuffer);
+        Serial.println(F("\""));
+        Serial.print(F("[ERROR]   Timeout: "));
+        Serial.print(DWM_RESPONSE_TIMEOUT_MS);
+        Serial.println(F("ms"));
+        Serial.print(F("[ERROR]   DWM serial listening: "));
+        Serial.println(DWMSerial.isListening() ? "YES" : "NO");
+        Serial.print(F("[ERROR]   DWM serial available: "));
+        Serial.println(DWMSerial.available());
+        Serial.println(F("[ERROR]"));
+        Serial.println(F("[ERROR] Possible causes:"));
+        Serial.println(F("[ERROR]   1. DWM3001CDK not powered on"));
+        Serial.println(F("[ERROR]   2. Wiring issue (GPIO14→D8, GPIO15→D9, GND→GND)"));
+        Serial.println(F("[ERROR]   3. DWM3001CDK firmware not running"));
+        Serial.println(F("[ERROR]   4. Baud rate mismatch (should be 115200)"));
+        Serial.println(F("[ERROR]   5. DWM3001CDK UART not initialized"));
+        Serial.println(F("[ERROR]   6. DWM3001CDK in sleep/reset state"));
+        Serial.println(F("[ERROR] =========================================="));
         send_error("DWM_NO_RESPONSE");
       }
     } else {
@@ -473,24 +582,24 @@ void loop() {
 
 /**
  * Set RS485 transceiver to transmit mode
- * DE=HIGH, RE=HIGH
+ * DE=HIGH, RE=HIGH (enable driver, disable receiver)
+ * Used when Arduino needs to send data to orchestrator
  */
 void set_rs485_tx_mode() {
-  digitalWrite(RS485_DE_PIN, HIGH);
-  digitalWrite(RS485_RE_PIN, HIGH);
+  digitalWrite(RS485_DE_PIN, HIGH);   // Enable driver (transmit)
+  digitalWrite(RS485_RE_PIN, HIGH);   // Disable receiver
   delayMicroseconds(RS485_TX_DELAY_US);  // Wait for transceiver to switch
 }
 
 /**
  * Set RS485 transceiver to receive mode
- * DE=LOW, RE=LOW
+ * DE=LOW, RE=LOW (disable driver, enable receiver)
+ * Used when Arduino is waiting to receive commands from orchestrator
  */
 void set_rs485_rx_mode() {
-  // No flush needed for SoftwareSerial as print() is blocking
-  // RS485Serial.flush(); 
-  delayMicroseconds(RS485_TX_DELAY_US);  // Wait for last bit to transmit
-  digitalWrite(RS485_DE_PIN, LOW);
-  digitalWrite(RS485_RE_PIN, LOW);
+  delayMicroseconds(RS485_TX_DELAY_US);  // Wait for last bit to transmit (if switching from TX)
+  digitalWrite(RS485_DE_PIN, LOW);    // Disable driver (receive)
+  digitalWrite(RS485_RE_PIN, LOW);    // Enable receiver
 }
 
 // ============================================================================
@@ -666,10 +775,27 @@ void rs485_send_response(const char* response) {
 /**
  * Send command to DWM3001CDK
  */
+/**
+ * Send command to DWM3001CDK
+ * TRANSPARENT BRIDGE: Sends exactly what orchestrator sent
+ * Format: command + \r\n (same as orchestrator sends)
+ */
 void dwm_send_command(const char* command) {
+  // Ensure DWM serial is listening
+  if (!DWMSerial.isListening()) {
+    DWMSerial.listen();
+    delay(10);
+  }
+  
+  // Send command exactly as orchestrator sent it
+  // Orchestrator sends: command + \r\n
+  // We forward: command + \r\n (identical format)
   DWMSerial.print(command);
-  DWMSerial.print("\r\n");  // Always add terminators
-  // DWMSerial.flush(); // Removed: would clear RX buffer immediately after sending
+  DWMSerial.print("\r\n");  // Add terminator (same as orchestrator)
+  
+  // Small delay to ensure transmission completes
+  // SoftwareSerial needs time to send all bits at 115200 baud
+  delay(5);
 }
 
 /**
@@ -770,7 +896,37 @@ bool dwm_receive_response(char* buffer, int maxLen) {
         Serial.print(F("[WARN] DWM serial still has "));
         Serial.print(stillAvailable);
         Serial.println(F(" bytes available - possible parsing issue"));
+        Serial.println(F("[WARN] Attempting to read remaining bytes..."));
+        char tempBuffer[64];
+        int tempIndex = 0;
+        while (DWMSerial.available() && tempIndex < sizeof(tempBuffer) - 1) {
+          tempBuffer[tempIndex++] = DWMSerial.read();
+        }
+        tempBuffer[tempIndex] = '\0';
+        Serial.print(F("[WARN] Remaining data: \""));
+        Serial.print(tempBuffer);
+        Serial.println(F("\""));
       }
+      
+      // Additional diagnostic: Check if DWM3001CDK might be sending but we're not receiving
+      Serial.println(F("[WARN] =========================================="));
+      Serial.println(F("[WARN] DWM3001CDK Communication Failure"));
+      Serial.println(F("[WARN] =========================================="));
+      Serial.println(F("[WARN] Check Arduino Serial Monitor (USB) for:"));
+      Serial.println(F("[WARN]   - Did startup messages appear?"));
+      Serial.println(F("[WARN]   - Any data from DWM3001CDK at all?"));
+      Serial.println(F("[WARN]"));
+      Serial.println(F("[WARN] If NO startup messages appeared:"));
+      Serial.println(F("[WARN]   1. DWM3001CDK firmware not running"));
+      Serial.println(F("[WARN]   2. Wiring incorrect (check GPIO14→D8, GPIO15→D9)"));
+      Serial.println(F("[WARN]   3. DWM3001CDK not powered"));
+      Serial.println(F("[WARN]   4. Baud rate mismatch"));
+      Serial.println(F("[WARN]"));
+      Serial.println(F("[WARN] If startup messages DID appear but commands fail:"));
+      Serial.println(F("[WARN]   1. DWM3001CDK might be in wrong state"));
+      Serial.println(F("[WARN]   2. Command format might be wrong"));
+      Serial.println(F("[WARN]   3. DWM3001CDK UART might have issues"));
+      Serial.println(F("[WARN] =========================================="));
       
       return false;  // No response
     }
