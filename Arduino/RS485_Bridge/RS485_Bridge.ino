@@ -110,9 +110,6 @@ int testCommandIndex = 0;
 const char* testCommands[] = {"PNG", "NODE_TYPE", "STAT"};
 const int testCommandCount = 3;
 
-// Auto-ping mode: Send PNG to DWM every 5 seconds (always active, not just in test mode)
-unsigned long lastAutoPingTime = 0;
-#define AUTO_PING_INTERVAL_MS 5000  // 5 seconds
 
 // CRITICAL: Flag to prevent listener switching during DWM communication
 bool waitingForDWMResponse = false;
@@ -399,7 +396,6 @@ void setup() {
   Serial.println(F("  5. Orchestrator is sending commands"));
   Serial.println(F("=========================================="));
   Serial.println(F("[TEST] Send 'T' via USB Serial to enable test mode"));
-  Serial.println(F("[TEST] Test mode sends commands to DWM every 5 seconds"));
   Serial.println(F("==========================================\n"));
 }
 
@@ -427,64 +423,7 @@ void loop() {
     test_dwm_communication();
   }
   
-  // AUTO-PING: Send PNG command to DWM every 5 seconds (always active)
-  if (millis() - lastAutoPingTime >= AUTO_PING_INTERVAL_MS) {
-    lastAutoPingTime = millis();
-    
-    Serial.println(F("=========================================="));
-    Serial.println(F("[AUTO-PING] Sending PNG to DWM..."));
-    Serial.println(F("=========================================="));
-    
-    // Set flag to prevent listener switching during communication
-    waitingForDWMResponse = true;
-    
-    // Clear DWM buffer before sending
-    DWMSerial.listen();
-    delay(20);
-    int cleared = 0;
-    while (DWMSerial.available()) {
-      DWMSerial.read();
-      cleared++;
-    }
-    if (cleared > 0) {
-      Serial.print(F("[AUTO-PING] Cleared "));
-      Serial.print(cleared);
-      Serial.println(F(" bytes from DWM buffer"));
-    }
-    
-    // Send PNG command
-    dwm_send_command("PNG");
-    
-    // Wait for response
-    bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
-    
-    // Clear the flag
-    waitingForDWMResponse = false;
-    
-    if (responseReceived) {
-      Serial.print(F("[AUTO-PING] ✅ Response: \""));
-      Serial.print(responseBuffer);
-      Serial.println(F("\""));
-      
-      // Forward successful ping result to orchestrator via RS485
-      // Format: OK PING <response_from_dwm>
-      char pingResponse[128];
-      snprintf(pingResponse, sizeof(pingResponse), "OK PING %s", responseBuffer);
-      rs485_send_response(pingResponse);
-      Serial.print(F("[AUTO-PING] → Sent to orchestrator: \""));
-      Serial.print(pingResponse);
-      Serial.println(F("\""));
-    } else {
-      Serial.println(F("[AUTO-PING] ❌ No response received"));
-      
-      // Forward timeout error to orchestrator via RS485
-      rs485_send_response("ERR PING_TIMEOUT");
-      Serial.println(F("[AUTO-PING] → Sent to orchestrator: ERR PING_TIMEOUT"));
-    }
-    Serial.println();
-  }
-  
-  // BACKGROUND LISTENER: Catch autonomous messages from DWM (like "OK PING" every 5s)
+  // BACKGROUND LISTENER: Catch autonomous messages from DWM
   // Only check when not actively waiting for a response to avoid conflicts
   if (!waitingForDWMResponse) {
     static char dwmBackgroundBuffer[256] = {0};
