@@ -33,7 +33,8 @@
  *   - CFG/SET_CONFIG   : Configure UWB parameters
  * 
  * Communication Protocol:
- *   - Baud Rate: 115200
+ *   - RS485 Baud Rate: 115200 (orchestrator to Arduino)
+ *   - DWM Baud Rate: 57600 (Arduino to DWM3001CDK)
  *   - Command terminator: \r or \n
  *   - Response format: OK <data>\r\n or ERR_<type>\r\n
  * 
@@ -72,8 +73,8 @@
 // CONFIGURATION CONSTANTS
 // ============================================================================
 
-#define RS485_BAUD_RATE 57600         // RS485 baud rate (reduced for SoftwareSerial reliability)
-#define DWM_BAUD_RATE 115200          // DWM3001CDK baud rate (must match firmware)
+#define RS485_BAUD_RATE 115200        // RS485 baud rate (orchestrator to Arduino)
+#define DWM_BAUD_RATE 57600           // DWM3001CDK baud rate (must match firmware)
 #define RS485_TX_DELAY_US 100         // Delay for RS485 transceiver switching (microseconds)
 #define COMMAND_BUFFER_SIZE 256       // Increased for long STAT responses
 #define DWM_RESPONSE_TIMEOUT_MS 5000  // Timeout for DWM response (5 seconds)
@@ -336,8 +337,8 @@ void setup() {
     Serial.println(F("[SETUP]      - Should be orchestrator_rx.c or orchestrator_tx.c"));
     Serial.println(F("[SETUP]      - Check with: .\\build-and-flash-rx.ps1 or .\\build-and-flash-tx.ps1"));
     Serial.println(F("[SETUP]   4. Baud rate match?"));
-    Serial.println(F("[SETUP]      - Arduino expects: 115200 baud"));
-    Serial.println(F("[SETUP]      - DWM3001CDK should use: 115200 baud"));
+    Serial.println(F("[SETUP]      - Arduino expects: 57600 baud"));
+    Serial.println(F("[SETUP]      - DWM3001CDK should use: 57600 baud"));
     Serial.println(F("[SETUP]   5. DWM3001CDK UART enabled?"));
     Serial.println(F("[SETUP]      - Firmware should initialize UART on GPIO14/15"));
     Serial.println(F("[SETUP] =========================================="));
@@ -393,7 +394,7 @@ void setup() {
   Serial.println(F("[INFO] If no commands appear, check:"));
   Serial.println(F("  1. RS485 wiring (A/B, GND, VCC)"));
   Serial.println(F("  2. MAX485 DE/RE pins connected to D2/D3"));
-  Serial.println(F("  3. RS485 baud rate matches (57600)"));
+  Serial.println(F("  3. RS485 baud rate matches (115200)"));
   Serial.println(F("  4. RS485 transceiver power"));
   Serial.println(F("  5. Orchestrator is sending commands"));
   Serial.println(F("=========================================="));
@@ -645,7 +646,7 @@ void loop() {
         Serial.println(F("[ERROR]   1. DWM3001CDK not powered on"));
         Serial.println(F("[ERROR]   2. Wiring issue (GPIO14→D9, GPIO15→D8, GND→GND)"));
         Serial.println(F("[ERROR]   3. DWM3001CDK firmware not running"));
-        Serial.println(F("[ERROR]   4. Baud rate mismatch (should be 115200)"));
+        Serial.println(F("[ERROR]   4. Baud rate mismatch (should be 57600)"));
         Serial.println(F("[ERROR]   5. DWM3001CDK UART not initialized"));
         Serial.println(F("[ERROR]   6. DWM3001CDK in sleep/reset state"));
         Serial.println(F("[ERROR] =========================================="));
@@ -765,7 +766,7 @@ bool rs485_receive_command(char* buffer, int maxLen) {
           Serial.print(RS485_BAUD_RATE);
           Serial.println(F(" baud"));
           Serial.println(F("[ERROR] Check orchestrator baud rate setting!"));
-          Serial.println(F("[ERROR] Expected: 57600, but might be sending at 115200"));
+          Serial.println(F("[ERROR] Expected: 115200, but might be sending at 57600"));
         }
         firstChar = false;
       }
@@ -817,8 +818,8 @@ bool rs485_receive_command(char* buffer, int maxLen) {
             Serial.print(F("[ERROR] Arduino is receiving at: "));
             Serial.print(RS485_BAUD_RATE);
             Serial.println(F(" baud"));
-            Serial.println(F("[ERROR] Orchestrator might be sending at 115200 baud!"));
-            Serial.println(F("[ERROR] Fix: Set orchestrator baudrate to 57600"));
+            Serial.println(F("[ERROR] Orchestrator might be sending at 57600 baud!"));
+            Serial.println(F("[ERROR] Fix: Set orchestrator baudrate to 115200"));
           }
           
           // Check if we're receiving PNG pattern
@@ -955,9 +956,9 @@ void dwm_send_command(const char* command) {
   // #endregion
   
   // CRITICAL FIX: Increased delay to ensure transmission completes
-  // SoftwareSerial at 115200 baud needs more time:
-  // - Each byte takes ~87us at 115200 baud
-  // - For "PNG\r\n" (5 bytes) = ~435us minimum
+  // SoftwareSerial at 57600 baud needs time:
+  // - Each byte takes ~174us at 57600 baud
+  // - For "PNG\r\n" (5 bytes) = ~870us minimum
   // - Add margin for SoftwareSerial overhead and DWM processing time
   // - Also need time for DWM to process command and start responding
   // - SoftwareSerial needs additional time to complete bit transmission
@@ -1165,7 +1166,7 @@ bool dwm_receive_response(char* buffer, int maxLen) {
     // #endregion
     
     // CRITICAL FIX: More aggressive reading - check available() more frequently
-    // SoftwareSerial can miss bytes if we don't read fast enough at 115200 baud
+    // SoftwareSerial can miss bytes if we don't read fast enough at 57600 baud
     int availableNow = DWMSerial.available();
     if (availableNow > 0) {
       // #region agent log
@@ -1181,7 +1182,7 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       // #endregion
       
       // CRITICAL FIX: Read immediately when available
-      // SoftwareSerial can lose bytes if we don't read fast enough at 115200 baud
+      // SoftwareSerial can lose bytes if we don't read fast enough at 57600 baud
       char c = DWMSerial.read();
       bytesReceived++;
       
@@ -1453,7 +1454,7 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       Serial.println(F("[WARN]   1. DWM3001CDK might be in wrong state"));
       Serial.println(F("[WARN]   2. Command format might be wrong"));
       Serial.println(F("[WARN]   3. DWM3001CDK UART might have issues"));
-      Serial.println(F("[WARN]   4. SoftwareSerial at 115200 baud may be unreliable"));
+      Serial.println(F("[WARN]   4. SoftwareSerial at 57600 baud may be unreliable"));
       Serial.println(F("[WARN] =========================================="));
       
       // #region agent log

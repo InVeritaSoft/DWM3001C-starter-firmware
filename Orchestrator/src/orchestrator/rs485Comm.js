@@ -20,7 +20,7 @@ export class CorruptedResponseError extends Error {
  * Handles serial communication with UWB nodes via RS-485
  */
 export class RS485Comm extends EventEmitter {
-  constructor(port, baudrate = 57600, timeout = 1000, maxRetries = 3) {
+  constructor(port, baudrate = 115200, timeout = 1000, maxRetries = 3) {
     super();
     this.port = port;
     this.baudrate = baudrate;
@@ -160,7 +160,7 @@ export class RS485Comm extends EventEmitter {
               );
             } else {
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 57600 baud for RS485 communication`
+                `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 115200 baud for RS485 communication`
               );
               console.error(
                 `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`
@@ -302,7 +302,7 @@ export class RS485Comm extends EventEmitter {
           `     - Verify transceiver enable/DE pins are configured\n` +
           `  4. Verify serial port:\n` +
           `     - Port ${this.port} is correct\n` +
-          `     - Baud rate matches firmware (115200)\n` +
+          `     - Baud rate matches Arduino bridge (115200)\n` +
           `     - No other software using the port\n` +
           `  5. Test with diagnostic script:\n` +
           `     - Run: npm run test-serial -- ${this.port}\n` +
@@ -310,7 +310,7 @@ export class RS485Comm extends EventEmitter {
           `     - Watch LEDs and check for responses\n` +
           `  6. Test with direct serial terminal:\n` +
           `     - Open serial terminal (PuTTY, Tera Term, etc.)\n` +
-          `     - Configure: 115200 baud, 8N1, no flow control\n` +
+          `     - Configure: 115200 baud, 8N1, no flow control (RS485 to Arduino)\n` +
           `     - Send "PNG\\r\\n" and check for "OK\\r\\n" response\n` +
           `     - Watch LEDs: orange on TX, green on RX`;
         
@@ -533,7 +533,7 @@ export class RS485Comm extends EventEmitter {
           `[RS485 ERROR] ${this.port}: This indicates the DWM3001C firmware may not be running or there's a baud rate mismatch between the RS485 bridge and DWM3001C`
         );
         console.log(
-          `[RS485 ERROR] ${this.port}: Check: 1) DWM3001C power, 2) Bridge→DWM wiring, 3) DWM firmware running, 4) Bridge baud rate (should be 115200 to DWM)`
+          `[RS485 ERROR] ${this.port}: Check: 1) DWM3001C power, 2) Bridge→DWM wiring, 3) DWM firmware running, 4) Bridge baud rate (should be 57600 to DWM)`
         );
         
         pending.reject(new Error(`DWM3001C not responding: ${cleanedData}`));

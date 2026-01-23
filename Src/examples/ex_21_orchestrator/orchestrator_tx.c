@@ -193,7 +193,7 @@ static void uart_init(void)
         .cts_pin_no = DW3000_CTS_PIN_NUM,
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = 30801920  // 115200 baud
+        .baud_rate = 15400960  // 57600 baud (Arduino bridge expects 57600)
     };
 
     APP_UART_FIFO_INIT(&comm_params,

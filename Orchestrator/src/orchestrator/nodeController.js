@@ -165,7 +165,7 @@ export class NodeController extends EventEmitter {
         console.error(`   1. Firmware is running orchestrator example`);
         console.error(`   2. RS-485 hardware connection`);
         console.error(`   3. Serial port ${this.rs485Comm.port} is correct`);
-        console.error(`   4. Baud rate: Should be 57600 for RS485 communication`);
+        console.error(`   4. Baud rate: Should be 115200 for RS485 communication (orchestrator to Arduino bridge)`);
         console.error(`   5. If you see corrupted data (high-bit bytes), check baud rate mismatch`);
         if (this.nodeId === 'B') {
           console.error(`   6. Node B is less reliable - check RS-485 wiring and termination`);

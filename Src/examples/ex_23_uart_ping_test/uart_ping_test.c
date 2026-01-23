@@ -137,7 +137,7 @@ static void uart_init(void)
         .cts_pin_no = 5,             // P0.5 (LED 2) - unused for flow control
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = 30801920  // 115200 baud
+        .baud_rate = 15400960  // 57600 baud (Arduino bridge expects 57600)
     };
 
     APP_UART_FIFO_INIT(&comm_params,
