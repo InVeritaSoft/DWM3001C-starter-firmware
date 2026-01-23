@@ -970,17 +970,17 @@ int orchestrator_tx_v2(void)
             g_timer_initialized = 1;
         }
         
-        /* Create ping timer for Arduino communication (every 5 seconds) */
-        err_code = app_timer_create(&m_ping_timer_id, APP_TIMER_MODE_REPEATED, ping_timer_handler);
-        if (err_code == NRF_SUCCESS)
-        {
-            /* Start ping timer: 5000ms = 5 seconds */
-            err_code = app_timer_start(m_ping_timer_id, APP_TIMER_TICKS(5000), NULL);
-            if (err_code == NRF_SUCCESS)
-            {
-                test_run_info((unsigned char *)"PING timer started (5s interval)");
-            }
-        }
+        /* Ping timer removed - no longer sending 5s messages to rx */
+        // err_code = app_timer_create(&m_ping_timer_id, APP_TIMER_MODE_REPEATED, ping_timer_handler);
+        // if (err_code == NRF_SUCCESS)
+        // {
+        //     /* Start ping timer: 5000ms = 5 seconds */
+        //     err_code = app_timer_start(m_ping_timer_id, APP_TIMER_TICKS(5000), NULL);
+        //     if (err_code == NRF_SUCCESS)
+        //     {
+        //         test_run_info((unsigned char *)"PING timer started (5s interval)");
+        //     }
+        // }
     }
 
     /* Configure SPI rate */

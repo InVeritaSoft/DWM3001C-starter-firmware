@@ -140,6 +140,8 @@ void set_error_led(bool state);
 void update_heartbeat();
 void update_activity_leds();
 void test_dwm_communication();
+bool serial_receive_command(char* buffer, int maxLen);
+void handle_serial_command(const char* command);
 
 // ============================================================================
 // SETUP FUNCTION
@@ -395,7 +397,11 @@ void setup() {
   Serial.println(F("  4. RS485 transceiver power"));
   Serial.println(F("  5. Orchestrator is sending commands"));
   Serial.println(F("=========================================="));
-  Serial.println(F("[TEST] Send 'T' via USB Serial to enable test mode"));
+  Serial.println(F("[DEBUG] Serial Monitor Commands:"));
+  Serial.println(F("  - Send any command (e.g., PNG, NODE_TYPE, STAT)"));
+  Serial.println(F("    to forward it directly to DWM3001CDK for debugging"));
+  Serial.println(F("  - Send 'T' to toggle test mode"));
+  Serial.println(F("  - Commands should end with \\r or \\n"));
   Serial.println(F("==========================================\n"));
 }
 
@@ -404,114 +410,9 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Check for test mode command via USB Serial
-  if (Serial.available()) {
-    char cmd = Serial.read();
-    if (cmd == 'T' || cmd == 't') {
-      testModeEnabled = !testModeEnabled;
-      Serial.print(F("[TEST] Test mode "));
-      Serial.println(testModeEnabled ? "ENABLED" : "DISABLED");
-      if (testModeEnabled) {
-        testCommandIndex = 0;
-        lastTestTime = millis();
-      }
-    }
-  }
-  
-  // Run test mode if enabled
-  if (testModeEnabled) {
-    test_dwm_communication();
-  }
-  
-  // BACKGROUND LISTENER: Catch autonomous messages from DWM
-  // Only check when not actively waiting for a response to avoid conflicts
-  if (!waitingForDWMResponse) {
-    static char dwmBackgroundBuffer[256] = {0};
-    static int dwmBackgroundIndex = 0;
-    static unsigned long lastDWMBackgroundCheck = 0;
-    
-    // Check for incoming data from DWM every 100ms (faster than diagnostic check)
-    if (millis() - lastDWMBackgroundCheck > 100) {
-      lastDWMBackgroundCheck = millis();
-      
-      bool wasListening = RS485Serial.isListening();
-      // #region agent log - listener check
-      static unsigned long lastListenerLog = 0;
-      if (millis() - lastListenerLog > 1000) {  // Log every 1 second
-        lastListenerLog = millis();
-        Serial.print(F("[DWM-AUTO-DBG] Listener check: RS485="));
-        Serial.print(wasListening ? "YES" : "NO");
-        Serial.print(F(", DWM="));
-        Serial.println(DWMSerial.isListening() ? "YES" : "NO");
-      }
-      // #endregion
-      if (wasListening) {
-        // Temporarily switch to DWM to check for data
-        DWMSerial.listen();
-        delay(5);  // Small delay for listener switch
-      }
-      
-      int availableBefore = DWMSerial.available();
-      // #region agent log - bytes available
-      if (availableBefore > 0) {
-        Serial.print(F("[DWM-AUTO-DBG] Found "));
-        Serial.print(availableBefore);
-        Serial.println(F(" bytes available from DWM"));
-      }
-      // #endregion
-      
-      // Read available bytes from DWM
-      int bytesRead = 0;
-      while (DWMSerial.available() && dwmBackgroundIndex < sizeof(dwmBackgroundBuffer) - 1) {
-        char c = DWMSerial.read();
-        bytesRead++;
-        
-        // #region agent log - byte received
-        Serial.print(F("[DWM-AUTO-DBG] Byte #"));
-        Serial.print(bytesRead);
-        Serial.print(F(": 0x"));
-        if ((unsigned char)c < 0x10) Serial.print('0');
-        Serial.print((unsigned char)c, HEX);
-        Serial.print(F(" '"));
-        if (c >= 32 && c < 127) Serial.print(c);
-        Serial.println(F("'"));
-        // #endregion
-        
-        // Check for message terminator (\r or \n)
-        if (c == '\r' || c == '\n') {
-          if (dwmBackgroundIndex > 0) {
-            // Complete message received - null terminate and process
-            dwmBackgroundBuffer[dwmBackgroundIndex] = '\0';
-            
-            Serial.print(F("[DWM-AUTO] ✅ Caught autonomous message: \""));
-            Serial.print(dwmBackgroundBuffer);
-            Serial.println(F("\""));
-            
-            // Forward to orchestrator
-            char autoResponse[128];
-            snprintf(autoResponse, sizeof(autoResponse), "OK AUTO %s", dwmBackgroundBuffer);
-            rs485_send_response(autoResponse);
-            Serial.print(F("[DWM-AUTO] → Sent to orchestrator: \""));
-            Serial.print(autoResponse);
-            Serial.println(F("\""));
-            
-            // Reset buffer
-            dwmBackgroundIndex = 0;
-            dwmBackgroundBuffer[0] = '\0';
-          }
-        } else if (c >= 32 && c < 127) {
-          // Valid ASCII character - add to buffer
-          dwmBackgroundBuffer[dwmBackgroundIndex++] = c;
-        }
-        // Ignore other control characters
-      }
-      
-      // Restore listener if we switched it
-      if (wasListening) {
-        RS485Serial.listen();
-      }
-    }
-  }
+  // PRIORITY 1: Check for commands from RS485 converter (HIGHEST PRIORITY)
+  // This must be checked first to ensure orchestrator commands are processed immediately
+  // The actual RS485 command handling is below after status checks
   
   // CRITICAL DIAGNOSTIC: Periodically check if ANY bytes are arriving from DWM
   // This helps diagnose if the connection is working at all
@@ -615,8 +516,8 @@ void loop() {
     }
   }
   
-  // Check if command received from RS485
-  if (RS485Serial.available()) {
+  // PRIORITY 1: Check if command received from RS485 (HIGHEST PRIORITY)
+  if (RS485Serial.available() && !waitingForDWMResponse) {
     // Show activity detected and the first byte in hex to help diagnose baud/wiring issues
     int peekByte = RS485Serial.peek();
     unsigned char peekChar = (unsigned char)peekByte;
@@ -753,6 +654,34 @@ void loop() {
     } else {
       Serial.println(F("[WARN] Failed to receive valid command from RS485"));
     }
+  }
+  
+  // PRIORITY 2: Check for commands from USB Serial Monitor (for debugging)
+  // Only process if no RS485 activity to avoid conflicts
+  // Works like Command_Test.ino - simple command forwarding
+  if (!RS485Serial.available() && !waitingForDWMResponse && Serial.available()) {
+    static char serialCommandBuffer[COMMAND_BUFFER_SIZE];
+    if (serial_receive_command(serialCommandBuffer, COMMAND_BUFFER_SIZE)) {
+      // Check for special commands
+      if (strcmp(serialCommandBuffer, "T") == 0 || strcmp(serialCommandBuffer, "t") == 0) {
+        // Toggle test mode
+        testModeEnabled = !testModeEnabled;
+        Serial.print(F("[TEST] Test mode "));
+        Serial.println(testModeEnabled ? "ENABLED" : "DISABLED");
+        if (testModeEnabled) {
+          testCommandIndex = 0;
+          lastTestTime = millis();
+        }
+      } else {
+        // Forward command to DWM3001CDK for debugging (like Command_Test.ino)
+        handle_serial_command(serialCommandBuffer);
+      }
+    }
+  }
+  
+  // Run test mode if enabled (only when not handling RS485)
+  if (testModeEnabled && !waitingForDWMResponse && !RS485Serial.available()) {
+    test_dwm_communication();
   }
   
   // Small delay to prevent CPU spinning
@@ -1162,56 +1091,27 @@ bool dwm_receive_response(char* buffer, int maxLen) {
   Serial.println(F("[DEBUG] Performing aggressive byte detection check..."));
   Serial.flush();
   
-  // Check multiple times over 200ms to catch any delayed responses
-  int maxAggressiveChecks = 20;
-  int aggressiveBytesFound = 0;
-  for (int check = 0; check < maxAggressiveChecks; check++) {
-    delay(10);  // Check every 10ms
-    int availableNow = DWMSerial.available();
-    if (availableNow > 0) {
-      aggressiveBytesFound = availableNow;
-      Serial.print(F("[DEBUG] AGGRESSIVE CHECK #"));
-      Serial.print(check);
-      Serial.print(F(": Found "));
-      Serial.print(availableNow);
-      Serial.print(F(" bytes available at "));
-      Serial.print(check * 10);
-      Serial.println(F("ms!"));
-      Serial.flush();
-      break;  // Found bytes, stop checking
-    }
-  }
-  
-  if (aggressiveBytesFound > 0) {
-    Serial.print(F("[DEBUG] Reading "));
-    Serial.print(aggressiveBytesFound);
-    Serial.println(F(" bytes from aggressive check..."));
+  // Quick check to see if bytes are available (without reading them)
+  // This is just for diagnostics - actual reading happens in main loop
+  int initialCheck = DWMSerial.available();
+  if (initialCheck > 0) {
+    Serial.print(F("[DEBUG] Initial check: "));
+    Serial.print(initialCheck);
+    Serial.println(F(" bytes already available"));
     Serial.flush();
-    for (int i = 0; i < aggressiveBytesFound && i < 20; i++) {
-      char c = DWMSerial.read();
-      Serial.print(F("[DEBUG] Byte "));
-      Serial.print(i);
-      Serial.print(F(": 0x"));
-      if ((unsigned char)c < 0x10) Serial.print('0');
-      Serial.print((unsigned char)c, HEX);
-      Serial.print(F(" ("));
-      Serial.print((int)c);
-      Serial.print(F(") '"));
-      if (c >= 32 && c < 127) Serial.print(c);
-      Serial.println(F("'"));
-      Serial.flush();
-    }
   } else {
-    Serial.print(F("[DEBUG] AGGRESSIVE CHECK: No bytes available after "));
-    Serial.print(maxAggressiveChecks * 10);
-    Serial.println(F("ms of checking"));
-    Serial.println(F("[DEBUG] This indicates DWM is NOT sending any data"));
-    Serial.println(F("[DEBUG] Possible causes:"));
-    Serial.println(F("[DEBUG]   1. DWM not powered"));
-    Serial.println(F("[DEBUG]   2. Wiring incorrect (GPIO14→D9, GPIO15→D8)"));
-    Serial.println(F("[DEBUG]   3. DWM firmware not running"));
-    Serial.println(F("[DEBUG]   4. Baud rate mismatch"));
-    Serial.flush();
+    // Wait a short time to see if bytes arrive
+    delay(50);
+    int delayedCheck = DWMSerial.available();
+    if (delayedCheck > 0) {
+      Serial.print(F("[DEBUG] Delayed check: "));
+      Serial.print(delayedCheck);
+      Serial.println(F(" bytes arrived after 50ms"));
+      Serial.flush();
+    } else {
+      Serial.println(F("[DEBUG] No bytes available initially - will wait in main loop"));
+      Serial.flush();
+    }
   }
   // #endregion
   
@@ -1869,4 +1769,103 @@ void test_dwm_communication() {
     testCommandIndex++;
     Serial.println(F("==========================================\n"));
   }
+}
+
+// ============================================================================
+// SERIAL MONITOR COMMAND HANDLING (FOR DEBUGGING)
+// ============================================================================
+
+/**
+ * Receive command from USB Serial Monitor
+ * Reads until \r or \n is received
+ * Returns true if valid command received, false otherwise
+ */
+bool serial_receive_command(char* buffer, int maxLen) {
+  int index = 0;
+  unsigned long startTime = millis();
+  
+  while (index < maxLen - 1) {
+    if (Serial.available()) {
+      char c = Serial.read();
+      
+      // Check for command terminator
+      if (c == '\r' || c == '\n') {
+        if (index > 0) {  // Only accept if we have data
+          buffer[index] = '\0';  // Null terminate
+          return true;
+        }
+        // Skip leading/empty terminators
+        continue;
+      } else {
+        buffer[index++] = c;
+      }
+      
+      startTime = millis();  // Reset timeout on each character
+    }
+    
+    // Timeout check (1 second for command reception)
+    if (millis() - startTime > 1000) {
+      if (index > 0) {
+        buffer[index] = '\0';
+        return true;  // Return partial command
+      }
+      return false;
+    }
+  }
+  
+  // Buffer full
+  buffer[maxLen - 1] = '\0';
+  return false;
+}
+
+/**
+ * Handle command received from Serial Monitor
+ * Forwards command to DWM3001CDK and displays response
+ */
+void handle_serial_command(const char* command) {
+  Serial.println(F("=========================================="));
+  Serial.print(F("[SERIAL] Command received: \""));
+  Serial.print(command);
+  Serial.println(F("\""));
+  Serial.println(F("[SERIAL] Forwarding to DWM3001CDK..."));
+  
+  // CRITICAL: Switch listener to DWM BEFORE sending
+  if (!DWMSerial.isListening()) {
+    DWMSerial.listen();
+    delay(10);
+  }
+  
+  // Clear any pending data from DWM before sending
+  int cleared = 0;
+  while (DWMSerial.available()) {
+    DWMSerial.read();
+    cleared++;
+  }
+  if (cleared > 0) {
+    Serial.print(F("[SERIAL] Cleared "));
+    Serial.print(cleared);
+    Serial.println(F(" bytes from DWM buffer"));
+  }
+  
+  // Mark that we're waiting for DWM response
+  waitingForDWMResponse = true;
+  
+  // Send command to DWM3001CDK
+  dwm_send_command(command);
+  
+  // Wait for response
+  bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
+  
+  // Clear the flag after response
+  waitingForDWMResponse = false;
+  
+  if (responseReceived) {
+    Serial.print(F("[SERIAL] ✅ Response: \""));
+    Serial.print(responseBuffer);
+    Serial.println(F("\""));
+  } else {
+    Serial.println(F("[SERIAL] ❌ No response received (timeout)"));
+  }
+  
+  Serial.println(F("==========================================\n"));
 }

@@ -601,6 +601,8 @@ static void send_response(const char *response)
     nrf_delay_us(50);  // Wait for transceiver to switch to receive mode
     #endif
     
+    // Keep LED on for 500ms so it's visible (for all command responses)
+    nrf_delay_ms(500);
     bsp_board_led_off(2);
     
     // Diagnostic: Log TX completion
