@@ -652,7 +652,7 @@ static void parse_command(char *cmd)
     else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
     {
         test_run_info((unsigned char *)"[DBG] NODE_TYPE command received");
-        send_response("OK NODE_TYPE=TCP_RX");
+        send_response("OK NODE_TYPE=RX_V2");
         test_run_info((unsigned char *)"[DBG] NODE_TYPE response sent");
         return;
     }
