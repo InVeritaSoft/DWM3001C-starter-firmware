@@ -115,7 +115,8 @@ export class NodeController extends EventEmitter {
   async ping() {
     try {
       // Use longer timeout for initial PING (firmware may need time to respond)
-      const response = await this.rs485Comm.sendCommand("PNG", 3000);
+      // RS485 bridge adds latency, so increase timeout to 5 seconds
+      const response = await this.rs485Comm.sendCommand("PNG", 5000);
       return response.startsWith("OK");
     } catch (error) {
       this.lastError = error.message;
@@ -126,6 +127,8 @@ export class NodeController extends EventEmitter {
         console.error(`   1. Firmware is running orchestrator example`);
         console.error(`   2. RS-485 hardware connection`);
         console.error(`   3. Serial port ${this.rs485Comm.port} is correct`);
+        console.error(`   4. Baud rate: Should be 57600 for RS485 communication`);
+        console.error(`   5. If you see corrupted data (high-bit bytes), check baud rate mismatch`);
       }
       return false;
     }

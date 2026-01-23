@@ -17,6 +17,28 @@ export class RS485Comm extends EventEmitter {
     this.isOpen = false;
     this.pendingCommands = new Map();
     this.commandId = 0;
+    
+    // #region agent log - RS485Comm constructor
+    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "rs485Comm.js:constructor",
+        message: "RS485Comm instantiated",
+        data: {
+          port,
+          baudrate,
+          timeout,
+          expectedBaudrate: 57600,
+          matchesExpected: baudrate === 57600,
+        },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        runId: "run1",
+        hypothesisId: "A",
+      }),
+    }).catch(() => {});
+    // #endregion
   }
 
   /**
@@ -67,6 +89,32 @@ export class RS485Comm extends EventEmitter {
         const timestamp = Date.now();
         const trimmed = data.toString().trim();
 
+        // #region agent log - parser data received
+        fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "rs485Comm.js:parser.on(data)",
+            message: "Parser received data",
+            data: {
+              port: this.port,
+              rawData: data.toString(),
+              trimmed,
+              dataLength: data.length,
+              hex: Buffer.from(data).toString("hex"),
+              bytes: Array.from(Buffer.from(data)),
+              encoding: data.toString("utf8"),
+              startsWithOK: trimmed.toUpperCase().startsWith("OK"),
+              startsWithERR: trimmed.toUpperCase().startsWith("ERR"),
+            },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            runId: "run1",
+            hypothesisId: "B",
+          }),
+        }).catch(() => {});
+        // #endregion
+
         // Always log RX for debugging (not just when DEBUG_RS485 is set)
         console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
         console.log(
@@ -103,26 +151,90 @@ export class RS485Comm extends EventEmitter {
           console.log(`[RS485 BYTES @${timestamp}] ${this.port}: Bytes=[${byteList}]`);
         }
 
+        // #region agent log - raw data received
+        const bytes = Array.from(data);
+        const highBitCount = bytes.filter((b) => b >= 0x80).length;
+        fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: "rs485Comm.js:serialPort.on(data)",
+            message: "Raw serial data received",
+            data: {
+              port: this.port,
+              baudrate: this.baudrate,
+              dataLength: data.length,
+              hex,
+              ascii,
+              bytes,
+              highBitCount,
+              highBitRatio: highBitCount / bytes.length,
+              hasCorruption: highBitCount / bytes.length > 0.5,
+              utf8: data.toString("utf8"),
+              latin1: data.toString("latin1"),
+            },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            runId: "run1",
+            hypothesisId: "A",
+          }),
+        }).catch(() => {});
+        // #endregion
+
         // Detect potential corruption patterns
         if (hex.length > 10) {
-          const bytes = hex.match(/.{2}/g) || [];
-          const highBitCount = bytes.filter(
+          const hexBytes = hex.match(/.{2}/g) || [];
+          const hexHighBitCount = hexBytes.filter(
             (b) => parseInt(b, 16) >= 0x80
           ).length;
           const repeatingPattern = hex.match(/(.{2})\1{3,}/);
           const alternatingPattern = hex.match(/f[0-9a-f]f[0-9a-f]f[0-9a-f]/i);
 
           if (
-            highBitCount / bytes.length > 0.5 ||
+            hexHighBitCount / hexBytes.length > 0.5 ||
             repeatingPattern ||
             alternatingPattern
           ) {
-            console.log(
-              `[RS485 WARNING @${timestamp}] ${this.port}: Potential baud rate mismatch detected!`
+            console.error(
+              `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ BAUD RATE MISMATCH DETECTED!`
+            );
+            console.error(
+              `[RS485 ERROR @${timestamp}] ${this.port}: Configured: ${this.baudrate} baud, but receiving corrupted data`
+            );
+            console.error(
+              `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(highBitCount / bytes.length * 100).toFixed(1)}% (should be < 10%)`
+            );
+            console.error(
+              `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 57600 baud for RS485 communication`
+            );
+            console.error(
+              `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`
             );
             console.log(
-              `[RS485 WARNING @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port}`
+              `[RS485 INFO @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port} for diagnostics`
             );
+            // #region agent log - baud rate mismatch detected
+            fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                location: "rs485Comm.js:serialPort.on(data)",
+                message: "Baud rate mismatch detected",
+                data: {
+                  port: this.port,
+                  configuredBaudrate: this.baudrate,
+                  hex,
+                  highBitRatio: hexHighBitCount / hexBytes.length,
+                  hasRepeatingPattern: !!repeatingPattern,
+                  hasAlternatingPattern: !!alternatingPattern,
+                },
+                timestamp: Date.now(),
+                sessionId: "debug-session",
+                runId: "run1",
+                hypothesisId: "A",
+              }),
+            }).catch(() => {});
+            // #endregion
           }
         }
       });
@@ -160,6 +272,32 @@ export class RS485Comm extends EventEmitter {
               }),
             }
           ).catch(() => {});
+          // #endregion
+          // #region agent log - verify baud rate after open
+          fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              location: "rs485Comm.js:open:onOpen",
+              message: "Serial port opened - verify baud rate",
+              data: {
+                port: this.port,
+                configuredBaudrate: this.baudrate,
+                expectedBaudrate: 57600,
+                matchesExpected: this.baudrate === 57600,
+                serialPortSettings: {
+                  baudRate: this.serialPort.settings?.baudRate,
+                  dataBits: this.serialPort.settings?.dataBits,
+                  parity: this.serialPort.settings?.parity,
+                  stopBits: this.serialPort.settings?.stopBits,
+                },
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              runId: "run1",
+              hypothesisId: "A",
+            }),
+          }).catch(() => {});
           // #endregion
           console.log(
             `[RS485] Port ${this.port} opened at ${this.baudrate} baud - ready to receive data`
@@ -540,11 +678,85 @@ export class RS485Comm extends EventEmitter {
       return;
     }
 
+    // Handle responses that might have been corrupted but are still recognizable
+    // Try to fix common corruption patterns before matching
+    let cleanedData = data;
+    let wasFixed = false;
+    
+    // Fix common corruption patterns for ERR responses:
+    // - "RS" or "RR" might be corrupted "ERR" (missing first byte or byte corruption)
+    // - "UNKNOWN_AMD" or "UNKNOWN_CND" might be "UNKNOWN_CMD" corrupted
+    if ((data.startsWith("RS ") || data.startsWith("RR ")) && data.includes("UNKNOWN")) {
+      cleanedData = "ERR" + data.substring(2); // Replace "RS" or "RR" with "ERR"
+      wasFixed = true;
+      // Fix various corrupted "UNKNOWN_CMD" patterns
+      cleanedData = cleanedData.replace(/UNKNOWN_[A-Z]{3}/, "UNKNOWN_CMD");
+      console.log(`[RS485 FIX] ${this.port}: Fixed corrupted ERR response: "${data}" -> "${cleanedData}"`);
+    }
+    
+    // Fix corruption where "OK" becomes "UOKN", "UOK", "RR UOKN", etc.
+    // Pattern: "RR UOKN" or "UOKN" might be corrupted "OK" response
+    if (data.includes("UOKN") || data.includes("UOK") || (data.startsWith("RR ") && data.includes("OK"))) {
+      // Try to extract the "OK" part
+      const okMatch = data.match(/U?OK[N]?/i);
+      if (okMatch) {
+        cleanedData = "OK" + data.substring(okMatch[0].length).replace(/^[^A-Z]*/, "");
+        wasFixed = true;
+        console.log(`[RS485 FIX] ${this.port}: Fixed corrupted OK response: "${data}" -> "${cleanedData}"`);
+      }
+    }
+    
+    // Fix single character responses that might be corrupted (like "K" which might be part of "OK")
+    if (data.length === 1 && data.toUpperCase() === "K") {
+      // "K" might be the last character of "OK" that got split
+      // Check if we have a pending command and this might be a late response
+      if (this.pendingCommands.size > 0) {
+        cleanedData = "OK";
+        wasFixed = true;
+        console.log(`[RS485 FIX] ${this.port}: Fixed single character "K" -> "OK": "${data}" -> "${cleanedData}"`);
+      }
+    }
+    
+    // Special handling for RS485 bridge error messages
+    // These arrive when the bridge can't get a response from the DWM3001C
+    if (cleanedData.includes("ERR_DWM_NO_RESPONSE") || cleanedData.includes("DWM_NO_RESPONSE")) {
+      // This is a bridge-level error, not a firmware response
+      // Try to match it to a pending command if available
+      const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
+        ([id1], [id2]) => id1 - id2
+      );
+      
+      if (sortedCommands.length > 0) {
+        const [id, pending] = sortedCommands[0];
+        clearTimeout(pending.timer);
+        this.pendingCommands.delete(id);
+        
+        console.log(
+          `[RS485 ERROR] ${this.port}: Command "${pending.command}" → Bridge error: DWM3001C not responding`
+        );
+        console.log(
+          `[RS485 ERROR] ${this.port}: This indicates the DWM3001C firmware may not be running or there's a baud rate mismatch between the RS485 bridge and DWM3001C`
+        );
+        console.log(
+          `[RS485 ERROR] ${this.port}: Check: 1) DWM3001C power, 2) Bridge→DWM wiring, 3) DWM firmware running, 4) Bridge baud rate (should be 115200 to DWM)`
+        );
+        
+        pending.reject(new Error(`DWM3001C not responding: ${cleanedData}`));
+        return;
+      } else {
+        // No pending command, but log it anyway
+        console.log(
+          `[RS485 WARNING] ${this.port}: Received ERR_DWM_NO_RESPONSE with no pending command (late response)`
+        );
+        return;
+      }
+    }
+    
     // Find matching pending command (FIFO - match oldest command first)
     // This ensures responses match commands in order, preventing race conditions
     if (
-      data.toUpperCase().startsWith("OK") ||
-      data.toUpperCase().startsWith("ERR")
+      cleanedData.toUpperCase().startsWith("OK") ||
+      cleanedData.toUpperCase().startsWith("ERR")
     ) {
       // #region agent log - handleResponse matched OK/ERR
       fetch(
@@ -556,8 +768,9 @@ export class RS485Comm extends EventEmitter {
             location: "rs485Comm.js:handleResponse",
             message: "handleResponse matched OK/ERR",
             data: {
-              data,
-              isOK: data.toUpperCase().startsWith("OK"),
+              originalData: data,
+              cleanedData,
+              isOK: cleanedData.toUpperCase().startsWith("OK"),
               pendingCommandsCount: this.pendingCommands.size,
               pendingCommandIds: Array.from(this.pendingCommands.keys()),
               pendingCommands: Array.from(this.pendingCommands.entries()).map(
@@ -592,7 +805,8 @@ export class RS485Comm extends EventEmitter {
               data: {
                 commandId: id,
                 pendingCommand: pending.command,
-                response: data,
+                originalResponse: data,
+                cleanedResponse: cleanedData,
               },
               timestamp: Date.now(),
               sessionId: "debug-session",
@@ -607,16 +821,24 @@ export class RS485Comm extends EventEmitter {
 
         // Log successful response match
         console.log(
-          `[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${data}`
+          `[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`
         );
 
-        if (data.toUpperCase().startsWith("OK")) {
-          pending.resolve(data);
+        if (cleanedData.toUpperCase().startsWith("OK")) {
+          pending.resolve(cleanedData);
         } else {
-          pending.reject(new Error(data));
+          pending.reject(new Error(cleanedData));
         }
         return;
       } else {
+        // Response arrived but no pending command - might be a late response
+        // Store it for a short time in case a command is sent soon
+        console.log(
+          `[RS485 WARNING] ${this.port}: Received OK/ERR response with no pending command: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`
+        );
+        console.log(
+          `[RS485 INFO] ${this.port}: This might be a late response from a previous command that timed out`
+        );
         // #region agent log - handleResponse no pending command
         fetch(
           "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
@@ -626,7 +848,7 @@ export class RS485Comm extends EventEmitter {
             body: JSON.stringify({
               location: "rs485Comm.js:handleResponse",
               message: "handleResponse no pending command",
-              data: { data },
+              data: { originalData: data, cleanedData },
               timestamp: Date.now(),
               sessionId: "debug-session",
               runId: "run1",
@@ -635,9 +857,6 @@ export class RS485Comm extends EventEmitter {
           }
         ).catch(() => {});
         // #endregion
-        console.log(
-          `[RS485 WARNING] ${this.port}: Received OK/ERR response with no pending command: ${data}`
-        );
       }
     }
 
@@ -650,9 +869,10 @@ export class RS485Comm extends EventEmitter {
         location: "rs485Comm.js:handleResponse",
         message: "handleResponse unsolicited data",
         data: {
-          data,
-          startsWithOK: data.toUpperCase().startsWith("OK"),
-          startsWithERR: data.toUpperCase().startsWith("ERR"),
+          originalData: data,
+          cleanedData,
+          startsWithOK: cleanedData.toUpperCase().startsWith("OK"),
+          startsWithERR: cleanedData.toUpperCase().startsWith("ERR"),
           pendingCommandsCount: this.pendingCommands.size,
         },
         timestamp: Date.now(),
@@ -663,9 +883,9 @@ export class RS485Comm extends EventEmitter {
     }).catch(() => {});
     // #endregion
     console.log(
-      `[RS485 WARNING] ${this.port}: Received data that doesn't match OK/ERR format or has no pending command: ${data}`
+      `[RS485 WARNING] ${this.port}: Received data that doesn't match OK/ERR format or has no pending command: ${cleanedData}${data !== cleanedData ? ` (original: ${data})` : ""}`
     );
-    this.emit("data", data);
+    this.emit("data", cleanedData);
   }
 
   /**
