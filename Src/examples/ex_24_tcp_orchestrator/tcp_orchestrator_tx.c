@@ -592,7 +592,7 @@ static void send_response(const char *response)
     }
     
     // Wait for UART transmission to complete
-    // At 30801920 baud: very fast, but add margin to ensure all bytes are transmitted
+    // At 57600 baud: ~174us per byte, add margin to ensure all bytes are transmitted
     nrf_delay_ms(5);  // Increased delay to ensure transmission completes
     
     // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
