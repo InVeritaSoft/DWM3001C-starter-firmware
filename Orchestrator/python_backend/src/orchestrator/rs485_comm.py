@@ -38,20 +38,81 @@ class RS485Comm:
         try:
             print(f"[RS485] Opening {self.port} at {self.baudrate} baud...")
             
-            # Create serial port
-            self.serial_port = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=0.1,  # Non-blocking read with short timeout
-                rtscts=False,
-                dsrdtr=False,
-            )
+            # Check if port exists and is available
+            available_ports = serial.tools.list_ports.comports()
+            port_names = [p.device for p in available_ports]
             
-            self.is_open = True
-            print(f"[RS485] {self.port} opened successfully")
+            if self.port not in port_names:
+                error_msg = (
+                    f"Port {self.port} not found.\n"
+                    f"Available ports: {', '.join(port_names) if port_names else 'None'}\n"
+                    f"\nTroubleshooting:\n"
+                    f"  1. Check Device Manager → Ports (COM & LPT)\n"
+                    f"  2. Verify USB-to-RS485 adapter is connected\n"
+                    f"  3. Try unplugging and replugging the USB adapter\n"
+                    f"  4. Check if port name is correct (e.g., COM20, COM21)"
+                )
+                print(f"[RS485 ERROR] {self.port}: {error_msg}")
+                raise Exception(error_msg)
+            
+            # Try to open with retry logic (in case port is temporarily locked)
+            max_retries = 3
+            retry_delay = 1.0  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    # Create serial port
+                    self.serial_port = serial.Serial(
+                        port=self.port,
+                        baudrate=self.baudrate,
+                        bytesize=serial.EIGHTBITS,
+                        parity=serial.PARITY_NONE,
+                        stopbits=serial.STOPBITS_ONE,
+                        timeout=0.1,  # Non-blocking read with short timeout
+                        rtscts=False,
+                        dsrdtr=False,
+                    )
+                    
+                    self.is_open = True
+                    print(f"[RS485] {self.port} opened successfully")
+                    break  # Success, exit retry loop
+                    
+                except serial.SerialException as e:
+                    error_str = str(e)
+                    
+                    # Check for permission/access denied errors
+                    if 'PermissionError' in error_str or 'Access is denied' in error_str or 'could not open port' in error_str.lower():
+                        if attempt < max_retries - 1:
+                            print(f"[RS485 WARNING] {self.port}: Port is locked (attempt {attempt + 1}/{max_retries}). Retrying in {retry_delay}s...")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            # Final attempt failed
+                            error_msg = (
+                                f"Failed to open port {self.port}: Access denied.\n"
+                                f"\nThis usually means another program is using the port.\n"
+                                f"\nTroubleshooting:\n"
+                                f"  1. Close any serial monitors (PuTTY, Tera Term, Arduino IDE Serial Monitor)\n"
+                                f"  2. Close any other test scripts or Python programs using {self.port}\n"
+                                f"  3. Check Task Manager for processes using serial ports\n"
+                                f"  4. Try unplugging and replugging the USB-to-RS485 adapter\n"
+                                f"  5. Restart your computer if the port remains locked\n"
+                                f"\nTo find what's using the port:\n"
+                                f"  - Run: .\\Scripts\\find-port-process.ps1 {self.port}\n"
+                                f"  - Or: python Scripts\\check-port-availability.py {self.port}\n"
+                                f"  - Check all open terminal/PowerShell windows\n"
+                                f"  - Look for serial monitor scripts running\n"
+                                f"  - Check if orchestrator web server is running\n"
+                                f"\nAvailable ports: {', '.join(port_names)}"
+                            )
+                            print(f"[RS485 ERROR] {self.port}: {error_msg}")
+                            raise Exception(error_msg)
+                    else:
+                        # Other serial errors - don't retry
+                        raise
+                except Exception as e:
+                    # Other errors - don't retry
+                    raise Exception(f"Failed to open port {self.port}: {e}")
             
             # Start background read task
             self._read_task = asyncio.create_task(self._read_loop())
@@ -60,6 +121,9 @@ class RS485Comm:
             await asyncio.sleep(2.0)
             
         except Exception as error:
+            # Re-raise if it's already been formatted, otherwise format it
+            if isinstance(error, Exception) and '\nTroubleshooting:' in str(error):
+                raise
             print(f"[RS485 ERROR] {self.port}: Failed to open: {error}")
             raise Exception(f"Failed to open port {self.port}: {error}")
     

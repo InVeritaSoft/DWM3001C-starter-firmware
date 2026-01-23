@@ -114,6 +114,13 @@ const int testCommandCount = 3;
 // CRITICAL: Flag to prevent listener switching during DWM communication
 bool waitingForDWMResponse = false;
 
+// State recovery variables
+unsigned long lastStateCheckTime = 0;
+unsigned long lastCommandTime = 0;
+unsigned long lastTransmitTime = 0;  // Track when we last transmitted on RS485
+#define STATE_CHECK_INTERVAL_MS 5000  // Check state every 5 seconds
+#define COMMAND_TIMEOUT_MS 10000      // If no command for 10 seconds, reset state
+
 // LED state tracking
 unsigned long ledRxOffTime = 0;
 unsigned long ledTxOffTime = 0;
@@ -142,6 +149,7 @@ void update_activity_leds();
 void test_dwm_communication();
 bool serial_receive_command(char* buffer, int maxLen);
 void handle_serial_command(const char* command);
+void recover_state();
 
 // ============================================================================
 // SETUP FUNCTION
@@ -410,17 +418,58 @@ void setup() {
 // ============================================================================
 
 void loop() {
+  // STATE RECOVERY: Periodically check and fix stuck states
+  unsigned long currentTime = millis();
+  if (currentTime - lastStateCheckTime > STATE_CHECK_INTERVAL_MS) {
+    lastStateCheckTime = currentTime;
+    recover_state();
+  }
+  
   // PRIORITY 1: Check for commands from RS485 converter (HIGHEST PRIORITY)
   // This must be checked first to ensure orchestrator commands are processed immediately
   // The actual RS485 command handling is below after status checks
   
   
-  // CRITICAL FIX: Only switch to RS485 if we're not currently waiting for DWM response
-  // Don't switch listener while DWM communication is in progress
-  // This prevents missing DWM responses due to listener switching
-  if (!waitingForDWMResponse && !RS485Serial.isListening()) {
-    RS485Serial.listen();
-    Serial.println(F("[RS485] Switched listener to RS485 port"));
+  // CRITICAL FIX: Always ensure RS485 listener is active when not actively waiting for DWM
+  // Commands can arrive at any time, so RS485 must always be ready
+  // If waiting for DWM but RS485 has data, we'll handle it in the command processing section
+  if (!RS485Serial.isListening()) {
+    // Only switch if we're not in the middle of a critical DWM operation
+    // But if RS485 has data, we need to switch to process it
+    if (!waitingForDWMResponse || RS485Serial.available()) {
+      RS485Serial.listen();
+      if (waitingForDWMResponse && RS485Serial.available()) {
+        Serial.println(F("[RS485] New command detected - switching to RS485 (will cancel DWM wait)"));
+      } else {
+        Serial.println(F("[RS485] Switched listener to RS485 port"));
+      }
+    }
+  }
+  
+  // CRITICAL FIX: Force RS485 to RX mode periodically to prevent stuck TX state
+  // If RS485 is stuck in TX mode, it can't receive commands
+  // Commands must be receivable at ANY time, so RS485 should always be in RX mode when idle
+  static unsigned long lastRS485ModeCheck = 0;
+  if (currentTime - lastRS485ModeCheck > 1000) {  // Check every second
+    lastRS485ModeCheck = currentTime;
+    // Always check RS485 mode - it must be in RX mode to receive commands
+    // Only exception: when actively transmitting (which is very brief)
+    // Check if we're currently transmitting by checking if we just sent something
+    unsigned long timeSinceTransmit = currentTime - lastTransmitTime;
+    
+    // If it's been more than 100ms since last transmit, we should be in RX mode
+    if (timeSinceTransmit > 100) {
+      // Verify RS485 is in RX mode (should be LOW for both DE and RE)
+      bool deState = digitalRead(RS485_DE_PIN);
+      bool reState = digitalRead(RS485_RE_PIN);
+      if (deState == HIGH || reState == HIGH) {
+        // RS485 is stuck in TX mode - force it back to RX mode
+        // This is critical - commands can't be received in TX mode!
+        Serial.println(F("[STATE] RS485 stuck in TX mode - forcing RX mode (commands must be receivable)"));
+        set_rs485_rx_mode();
+        delay(10);  // Allow mode switch to complete
+      }
+    }
   }
   
   // Update heartbeat LED
@@ -464,8 +513,45 @@ void loop() {
   }
   
   // PRIORITY 1: Check if command received from RS485 (HIGHEST PRIORITY)
-  if (RS485Serial.available() && !waitingForDWMResponse) {
+  // CRITICAL: Always process RS485 commands, even if waiting for DWM response
+  // If a new command arrives while waiting, cancel the current wait and process new command
+  if (RS485Serial.available()) {
+    // If we're waiting for DWM response and a new command arrives, cancel the wait
+    if (waitingForDWMResponse) {
+      Serial.println(F("[RS485] WARNING: New command received while waiting for DWM response - canceling wait"));
+      waitingForDWMResponse = false;
+      // Switch listener back to RS485 to receive the new command
+      if (!RS485Serial.isListening()) {
+        RS485Serial.listen();
+        delay(10);
+      }
+      // Ensure RS485 is in RX mode
+      set_rs485_rx_mode();
+    }
+    // Show activity detected and the first byte in hex to help diagnose baud/wiring issues
+    int peekByte = RS485Serial.peek();
+    unsigned char peekChar = (unsigned char)peekByte;
+    Serial.print(F("[RS485] Activity detected (0x"));
+    if (peekChar < 0x10) Serial.print('0');
+    Serial.print(peekChar, HEX);
+    Serial.print(F("="));
+    Serial.print((int)peekChar);
+    Serial.print(F("='"));
+    if (peekChar >= 32 && peekChar < 127) {
+      Serial.print((char)peekChar);
+    } else if (peekChar == '\r') {
+      Serial.print(F("\\r"));
+    } else if (peekChar == '\n') {
+      Serial.print(F("\\n"));
+    } else {
+      Serial.print('.');
+    }
+    Serial.println(F("'), receiving command..."));
+    
     if (rs485_receive_command(commandBuffer, COMMAND_BUFFER_SIZE)) {
+      // Update last command time for state recovery
+      lastCommandTime = millis();
+      
       // Valid command received - blink RX LED
       Serial.print(F("[RS485->] Received command: \""));
       Serial.print(commandBuffer);
@@ -511,7 +597,18 @@ void loop() {
       bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
       
       // Clear the flag after response (or timeout)
+      // CRITICAL: Always clear this flag, even on timeout, to prevent stuck state
       waitingForDWMResponse = false;
+      
+      // CRITICAL: Ensure RS485 is back in RX mode after sending response
+      // Sometimes the mode can get stuck if there was an error
+      set_rs485_rx_mode();
+      
+      // CRITICAL: Switch listener back to RS485 to receive next command
+      if (!RS485Serial.isListening()) {
+        RS485Serial.listen();
+        delay(10);
+      }
       
       if (responseReceived) {
         // Valid response received - send to orchestrator
@@ -546,6 +643,7 @@ void loop() {
   // PRIORITY 2: Check for commands from USB Serial Monitor (for debugging)
   // Only process if no RS485 activity to avoid conflicts
   // Works like Command_Test.ino - simple command forwarding
+  // Note: RS485 commands always take priority over USB serial commands
   if (!RS485Serial.available() && !waitingForDWMResponse && Serial.available()) {
     static char serialCommandBuffer[COMMAND_BUFFER_SIZE];
     if (serial_receive_command(serialCommandBuffer, COMMAND_BUFFER_SIZE)) {
@@ -698,7 +796,12 @@ void rs485_send_response(const char* response) {
   // Wait for transmission to complete (blocking in SoftwareSerial)
   // RS485Serial.flush();
   
+  // CRITICAL: Always return to RX mode immediately after sending
+  // This ensures RS485 is ready to receive the next command at any time
   set_rs485_rx_mode();
+  
+  // Update last transmit time for mode checking
+  lastTransmitTime = millis();
 }
 
 // ============================================================================
@@ -783,6 +886,13 @@ bool dwm_receive_response(char* buffer, int maxLen) {
   unsigned long lastByteTime = startTime;  // Track when we last received a byte
   
   while (index < maxLen - 1) {
+    // CRITICAL: Check if new RS485 command arrived - if so, abort waiting for DWM response
+    // This allows commands to be sent at any time
+    if (RS485Serial.available() && waitingForDWMResponse) {
+      Serial.println(F("[DWM RX] New RS485 command detected - aborting DWM response wait"));
+      return false;  // Abort waiting, new command takes priority
+    }
+    
     // CRITICAL FIX: Periodically verify listener hasn't switched away
     // This prevents missing data if listener gets switched by main loop
     if (!DWMSerial.isListening() && waitingForDWMResponse) {
@@ -791,10 +901,66 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       delay(20);  // Increased delay for listener restoration
     }
     
-    // CRITICAL FIX: More aggressive reading - check available() more frequently
-    // SoftwareSerial can miss bytes if we don't read fast enough at 115200 baud
-    int availableNow = DWMSerial.available();
-    if (availableNow > 0) {
+      // #region agent log
+      // Log periodic status every 500ms to track progress
+      unsigned long currentCheckTime = millis();
+      static unsigned long lastStatusLog = 0;
+      if (currentCheckTime - lastStatusLog > 500) {
+        lastStatusLog = currentCheckTime;
+        int currentAvailable = DWMSerial.available();
+        Serial.print(F("[DEBUG] Still waiting: elapsed="));
+        Serial.print(currentCheckTime - startTime);
+        Serial.print(F("ms, available="));
+        Serial.print(currentAvailable);
+        Serial.print(F(", index="));
+        Serial.print(index);
+        Serial.print(F(", listening="));
+        Serial.print(DWMSerial.isListening() ? "YES" : "NO");
+        Serial.print(F(", bytesReceived="));
+        Serial.print(bytesReceived);
+        Serial.print(F(", lastByteTime="));
+        Serial.print(currentCheckTime - lastByteTime);
+        Serial.println(F("ms ago"));
+        Serial.flush();  // CRITICAL: Force output
+      
+      // If we have bytes available but haven't read them, that's suspicious
+      if (currentAvailable > 0 && bytesReceived == 0) {
+        Serial.println(F("[DEBUG] WARNING: Bytes available but not being read! Possible blocking issue."));
+        // Try to peek at what's there
+        char peekChar = DWMSerial.peek();
+        Serial.print(F("[DEBUG] Peek at first byte: 0x"));
+        if ((unsigned char)peekChar < 0x10) Serial.print('0');
+        Serial.print((unsigned char)peekChar, HEX);
+        Serial.print(F(" ('"));
+        if (peekChar >= 32 && peekChar < 127) Serial.print(peekChar);
+        Serial.println(F("')"));
+      }
+    }
+    // #endregion
+    
+  // CRITICAL: Check for new RS485 command before reading DWM data
+  // New commands always take priority
+  if (RS485Serial.available() && waitingForDWMResponse) {
+    Serial.println(F("[DWM RX] New RS485 command detected during read - aborting"));
+    return false;  // Abort, new command takes priority
+  }
+  
+  // CRITICAL FIX: More aggressive reading - check available() more frequently
+  // SoftwareSerial can miss bytes if we don't read fast enough at 115200 baud
+  int availableNow = DWMSerial.available();
+  if (availableNow > 0) {
+      // #region agent log
+      // Log when bytes become available (first time only)
+      if (bytesReceived == 0 && availableNow > 0) {
+        Serial.print(F("[DEBUG] BYTES DETECTED! available()="));
+        Serial.print(availableNow);
+        Serial.print(F(" at elapsed="));
+        Serial.print(millis() - startTime);
+        Serial.println(F("ms"));
+        Serial.flush();
+      }
+      // #endregion
+      
       // CRITICAL FIX: Read immediately when available
       // SoftwareSerial can lose bytes if we don't read fast enough at 115200 baud
       char c = DWMSerial.read();
@@ -830,6 +996,13 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       lastByteTime = millis();  // Track when we last received a byte
       startTime = millis();  // Reset timeout on each character
     } else {
+      // CRITICAL: Check for new RS485 command even when no DWM data available
+      // This ensures commands can interrupt waiting for DWM response
+      if (RS485Serial.available() && waitingForDWMResponse) {
+        Serial.println(F("[DWM RX] New RS485 command detected - aborting wait"));
+        return false;  // Abort waiting, process new command
+      }
+      
       // CRITICAL FIX: Small delay when no data available
       // This prevents tight looping and allows SoftwareSerial interrupt handlers to run
       // SoftwareSerial uses interrupts, so we need to yield CPU time
@@ -948,8 +1121,17 @@ bool perform_handshake() {
     Serial.println(F("[HANDSHAKE] Waiting for response..."));
     bool handshakeResponse = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
     
-    // Clear the flag after response
-    waitingForDWMResponse = false;
+      // Clear the flag after response
+      waitingForDWMResponse = false;
+      
+      // CRITICAL: Ensure RS485 is back in RX mode
+      set_rs485_rx_mode();
+      
+      // CRITICAL: Switch listener back to RS485
+      if (!RS485Serial.isListening()) {
+        RS485Serial.listen();
+        delay(10);
+      }
     
     if (handshakeResponse) {
       Serial.print(F("[HANDSHAKE] Received: "));
@@ -1124,8 +1306,23 @@ void test_dwm_communication() {
     // Wait for response
     bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
     
-    // Clear the flag after response
-    waitingForDWMResponse = false;
+    // #region agent log
+    Serial.print(F("[DEBUG] dwm_receive_response returned: "));
+    Serial.println(responseReceived ? "true" : "false");
+    Serial.flush();
+    // #endregion
+    
+      // Clear the flag after response
+      waitingForDWMResponse = false;
+      
+      // CRITICAL: Ensure RS485 is back in RX mode
+      set_rs485_rx_mode();
+      
+      // CRITICAL: Switch listener back to RS485
+      if (!RS485Serial.isListening()) {
+        RS485Serial.listen();
+        delay(10);
+      }
     
     if (responseReceived) {
       Serial.print(F("[TEST] ✅ SUCCESS - Response: \""));
@@ -1227,8 +1424,17 @@ void handle_serial_command(const char* command) {
   // Wait for response
   bool responseReceived = dwm_receive_response(responseBuffer, COMMAND_BUFFER_SIZE);
   
-  // Clear the flag after response
-  waitingForDWMResponse = false;
+      // Clear the flag after response
+      waitingForDWMResponse = false;
+      
+      // CRITICAL: Ensure RS485 is back in RX mode
+      set_rs485_rx_mode();
+      
+      // CRITICAL: Switch listener back to RS485
+      if (!RS485Serial.isListening()) {
+        RS485Serial.listen();
+        delay(10);
+      }
   
   if (responseReceived) {
     Serial.print(F("[SERIAL] ✅ Response: \""));
@@ -1239,4 +1445,111 @@ void handle_serial_command(const char* command) {
   }
   
   Serial.println(F("==========================================\n"));
+}
+
+// ============================================================================
+// STATE RECOVERY FUNCTION
+// ============================================================================
+
+/**
+ * Recover from stuck states
+ * Called periodically to ensure bridge is in correct state
+ */
+void recover_state() {
+  unsigned long currentTime = millis();
+  
+  Serial.println(F("[STATE] Performing state recovery check..."));
+  
+  // 1. Check if waitingForDWMResponse flag is stuck
+  // If it's been set for more than DWM_RESPONSE_TIMEOUT_MS + 1 second, it's stuck
+  static unsigned long waitingStartTime = 0;
+  if (waitingForDWMResponse) {
+    if (waitingStartTime == 0) {
+      waitingStartTime = currentTime;
+    } else if (currentTime - waitingStartTime > (DWM_RESPONSE_TIMEOUT_MS + 1000)) {
+      Serial.println(F("[STATE] WARNING: waitingForDWMResponse flag stuck - clearing"));
+      waitingForDWMResponse = false;
+      waitingStartTime = 0;
+    }
+  } else {
+    waitingStartTime = 0;
+  }
+  
+  // 2. Ensure RS485 is in RX mode (should ALWAYS be in RX mode when not actively transmitting)
+  // RS485 must be ready to receive commands at any time
+  bool deState = digitalRead(RS485_DE_PIN);
+  bool reState = digitalRead(RS485_RE_PIN);
+  if (deState == HIGH || reState == HIGH) {
+    Serial.println(F("[STATE] RS485 not in RX mode - forcing RX mode (must be ready for commands)"));
+    set_rs485_rx_mode();
+    // If RS485 was stuck in TX mode, we might have missed commands
+    // Check if there's data waiting now that we're in RX mode
+    delay(10);  // Small delay for mode switch to complete
+    if (RS485Serial.available()) {
+      Serial.print(F("[STATE] Found "));
+      Serial.print(RS485Serial.available());
+      Serial.println(F(" bytes waiting after switching to RX mode"));
+    }
+  }
+  
+  // 3. Ensure RS485 listener is active (always ready to receive commands)
+  // Commands can arrive at any time, so RS485 should always be listening
+  if (!RS485Serial.isListening()) {
+    Serial.println(F("[STATE] RS485 listener not active - switching (commands must always be receivable)"));
+    RS485Serial.listen();
+    delay(10);
+    // If we were waiting for DWM, cancel it - new command takes priority
+    if (waitingForDWMResponse) {
+      Serial.println(F("[STATE] Canceling DWM wait - RS485 must be ready for commands"));
+      waitingForDWMResponse = false;
+    }
+  }
+  
+  // 4. Clear any stuck buffers
+  // If there's data in RS485 buffer but no command is being processed, clear it
+  if (!waitingForDWMResponse && RS485Serial.available() > 100) {
+    Serial.print(F("[STATE] Clearing stuck RS485 buffer ("));
+    Serial.print(RS485Serial.available());
+    Serial.println(F(" bytes)"));
+    int cleared = 0;
+    while (RS485Serial.available() && cleared < 200) {
+      RS485Serial.read();
+      cleared++;
+    }
+    Serial.print(F("[STATE] Cleared "));
+    Serial.print(cleared);
+    Serial.println(F(" bytes"));
+  }
+  
+  // 5. Check if DWM listener is stuck
+  // RS485 should always be listening unless we're actively waiting for DWM response
+  // If DWM listener is active but no response is expected, switch back to RS485
+  if (DWMSerial.isListening() && !RS485Serial.isListening()) {
+    if (!waitingForDWMResponse) {
+      Serial.println(F("[STATE] DWM listener active but not needed - switching to RS485"));
+      RS485Serial.listen();
+      delay(10);
+    } else {
+      // We're waiting for DWM, but check if RS485 has a new command (takes priority)
+      if (RS485Serial.available()) {
+        Serial.println(F("[STATE] New RS485 command while waiting for DWM - canceling wait"));
+        waitingForDWMResponse = false;
+        RS485Serial.listen();
+        delay(10);
+      }
+    }
+  }
+  
+  // 6. Reset lastCommandTime if no command received for too long
+  if (currentTime - lastCommandTime > COMMAND_TIMEOUT_MS && lastCommandTime > 0) {
+    Serial.println(F("[STATE] No commands received for extended period - resetting state"));
+    // Force state reset
+    waitingForDWMResponse = false;
+    set_rs485_rx_mode();
+    RS485Serial.listen();
+    delay(10);
+    lastCommandTime = 0;  // Reset to prevent repeated messages
+  }
+  
+  Serial.println(F("[STATE] State recovery check complete"));
 }

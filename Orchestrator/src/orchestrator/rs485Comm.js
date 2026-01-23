@@ -3,42 +3,34 @@ import { ReadlineParser } from "serialport";
 import { EventEmitter } from "events";
 
 /**
+ * Custom error class for corrupted responses that should be retried
+ */
+export class CorruptedResponseError extends Error {
+  constructor(message, corruptedData, highBitRatio) {
+    super(message);
+    this.name = "CorruptedResponseError";
+    this.corruptedData = corruptedData;
+    this.highBitRatio = highBitRatio;
+    this.isRetryable = true;
+  }
+}
+
+/**
  * RS-485 Communication Module
  * Handles serial communication with UWB nodes via RS-485
  */
 export class RS485Comm extends EventEmitter {
-  constructor(port, baudrate = 115200, timeout = 1000) {
+  constructor(port, baudrate = 57600, timeout = 1000, maxRetries = 3) {
     super();
     this.port = port;
     this.baudrate = baudrate;
     this.timeout = timeout;
+    this.maxRetries = maxRetries; // Maximum retries for corrupted responses
     this.serialPort = null;
     this.parser = null;
     this.isOpen = false;
     this.pendingCommands = new Map();
     this.commandId = 0;
-    
-    // #region agent log - RS485Comm constructor
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:constructor",
-        message: "RS485Comm instantiated",
-        data: {
-          port,
-          baudrate,
-          timeout,
-          expectedBaudrate: 57600,
-          matchesExpected: baudrate === 57600,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
   }
 
   /**
@@ -64,57 +56,10 @@ export class RS485Comm extends EventEmitter {
         new ReadlineParser({ delimiter: "\r\n" })
       );
 
-      // Verify parser is set up
-      // #region agent log - parser setup
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:open",
-            message: "Parser setup complete",
-            data: { port: this.port, hasParser: !!this.parser },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "A",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
-
       // Handle incoming data
       this.parser.on("data", (data) => {
         const timestamp = Date.now();
         const trimmed = data.toString().trim();
-
-        // #region agent log - parser data received
-        fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:parser.on(data)",
-            message: "Parser received data",
-            data: {
-              port: this.port,
-              rawData: data.toString(),
-              trimmed,
-              dataLength: data.length,
-              hex: Buffer.from(data).toString("hex"),
-              bytes: Array.from(Buffer.from(data)),
-              encoding: data.toString("utf8"),
-              startsWithOK: trimmed.toUpperCase().startsWith("OK"),
-              startsWithERR: trimmed.toUpperCase().startsWith("ERR"),
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "B",
-          }),
-        }).catch(() => {});
-        // #endregion
-
         // Always log RX for debugging (not just when DEBUG_RS485 is set)
         console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
         console.log(
@@ -151,36 +96,6 @@ export class RS485Comm extends EventEmitter {
           console.log(`[RS485 BYTES @${timestamp}] ${this.port}: Bytes=[${byteList}]`);
         }
 
-        // #region agent log - raw data received
-        const bytes = Array.from(data);
-        const highBitCount = bytes.filter((b) => b >= 0x80).length;
-        fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:serialPort.on(data)",
-            message: "Raw serial data received",
-            data: {
-              port: this.port,
-              baudrate: this.baudrate,
-              dataLength: data.length,
-              hex,
-              ascii,
-              bytes,
-              highBitCount,
-              highBitRatio: highBitCount / bytes.length,
-              hasCorruption: highBitCount / bytes.length > 0.5,
-              utf8: data.toString("utf8"),
-              latin1: data.toString("latin1"),
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "A",
-          }),
-        }).catch(() => {});
-        // #endregion
-
         // Detect potential corruption patterns
         if (hex.length > 10) {
           const hexBytes = hex.match(/.{2}/g) || [];
@@ -189,52 +104,71 @@ export class RS485Comm extends EventEmitter {
           ).length;
           const repeatingPattern = hex.match(/(.{2})\1{3,}/);
           const alternatingPattern = hex.match(/f[0-9a-f]f[0-9a-f]f[0-9a-f]/i);
+          const highBitRatio = hexHighBitCount / hexBytes.length;
 
+          // Lower threshold for corruption detection (10% instead of 50%)
+          // This catches corruption earlier, especially for Node B
           if (
-            hexHighBitCount / hexBytes.length > 0.5 ||
+            highBitRatio > 0.1 ||
             repeatingPattern ||
             alternatingPattern
           ) {
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ BAUD RATE MISMATCH DETECTED!`
+              `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ DATA CORRUPTION DETECTED!`
             );
             console.error(
               `[RS485 ERROR @${timestamp}] ${this.port}: Configured: ${this.baudrate} baud, but receiving corrupted data`
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(highBitCount / bytes.length * 100).toFixed(1)}% (should be < 10%)`
+              `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(highBitRatio * 100).toFixed(1)}% (should be < 10%)`
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 57600 baud for RS485 communication`
+              `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted hex: ${hex.substring(0, 40)}${hex.length > 40 ? '...' : ''}`
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`
+              `[RS485 ERROR @${timestamp}] ${this.port}: ASCII preview: ${ascii.substring(0, 40)}${ascii.length > 40 ? '...' : ''}`
             );
+            
+            // Check if it starts with ERR (firmware is responding but data is corrupted)
+            if (ascii.toUpperCase().startsWith("ERR")) {
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ Firmware IS responding (starts with ERR), but data is corrupted during RS485 transmission`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}: This indicates a HARDWARE issue with Node B's RS485 transceiver or wiring`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}: Troubleshooting steps:`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   1. Check RS485 transceiver power (VCC→5V, GND→GND) on Node B Arduino`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   2. Verify RS485 wiring (A+/B- lines, GND) for Node B`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   3. Check termination resistors (120Ω at each end of RS485 bus)`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   4. Verify DE/RE pins on Node B's MAX485 are connected to Arduino D2/D3`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   5. Swap RS485 adapters between Node A and Node B to test if adapter is faulty`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}:   6. Check if Node B Arduino Serial Monitor shows baud rate mismatch errors`
+              );
+            } else {
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 57600 baud for RS485 communication`
+              );
+              console.error(
+                `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`
+              );
+            }
             console.log(
               `[RS485 INFO @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port} for diagnostics`
             );
-            // #region agent log - baud rate mismatch detected
-            fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                location: "rs485Comm.js:serialPort.on(data)",
-                message: "Baud rate mismatch detected",
-                data: {
-                  port: this.port,
-                  configuredBaudrate: this.baudrate,
-                  hex,
-                  highBitRatio: hexHighBitCount / hexBytes.length,
-                  hasRepeatingPattern: !!repeatingPattern,
-                  hasAlternatingPattern: !!alternatingPattern,
-                },
-                timestamp: Date.now(),
-                sessionId: "debug-session",
-                runId: "run1",
-                hypothesisId: "A",
-              }),
-            }).catch(() => {});
-            // #endregion
           }
         }
       });
@@ -249,56 +183,6 @@ export class RS485Comm extends EventEmitter {
         const onOpen = () => {
           cleanup();
           this.isOpen = true;
-          // #region agent log - serial port opened
-          fetch(
-            "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                location: "rs485Comm.js:open",
-                message: "Serial port opened",
-                data: {
-                  port: this.port,
-                  baudrate: this.baudrate,
-                  isOpen: this.isOpen,
-                  hasParser: !!this.parser,
-                  hasRawListener: this.serialPort.listenerCount("data") > 0,
-                },
-                timestamp: Date.now(),
-                sessionId: "debug-session",
-                runId: "run1",
-                hypothesisId: "A",
-              }),
-            }
-          ).catch(() => {});
-          // #endregion
-          // #region agent log - verify baud rate after open
-          fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:open:onOpen",
-              message: "Serial port opened - verify baud rate",
-              data: {
-                port: this.port,
-                configuredBaudrate: this.baudrate,
-                expectedBaudrate: 57600,
-                matchesExpected: this.baudrate === 57600,
-                serialPortSettings: {
-                  baudRate: this.serialPort.settings?.baudRate,
-                  dataBits: this.serialPort.settings?.dataBits,
-                  parity: this.serialPort.settings?.parity,
-                  stopBits: this.serialPort.settings?.stopBits,
-                },
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "A",
-            }),
-          }).catch(() => {});
-          // #endregion
           console.log(
             `[RS485] Port ${this.port} opened at ${this.baudrate} baud - ready to receive data`
           );
@@ -372,32 +256,13 @@ export class RS485Comm extends EventEmitter {
   }
 
   /**
-   * Send command and wait for response
+   * Send command and wait for response with automatic retry on corruption
    * @param {string} command - ASCII command to send
    * @param {number} timeout - Timeout in milliseconds
+   * @param {number} retryCount - Internal retry counter (used for recursion)
    * @returns {Promise<string>} Response string
    */
-  async sendCommand(command, timeout = this.timeout) {
-    // #region agent log - sendCommand entry
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:sendCommand",
-        message: "sendCommand called",
-        data: {
-          command,
-          commandLength: command.length,
-          timeout,
-          isOpen: this.isOpen,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "C",
-      }),
-    }).catch(() => {});
-    // #endregion
+  async sendCommand(command, timeout = this.timeout, retryCount = 0) {
     // Auto-open port if not already open (allow sending commands without connection check)
     if (!this.isOpen) {
       console.log(`[RS485] Port ${this.port} not open, attempting to open automatically...`);
@@ -413,50 +278,8 @@ export class RS485Comm extends EventEmitter {
     const commandId = ++this.commandId;
     const commandStr = `${command}\r\n`;
 
-    // #region agent log - sendCommand before write
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:sendCommand",
-        message: "sendCommand before write",
-        data: { command, commandStr, commandId },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "C",
-      }),
-    }).catch(() => {});
-    // #endregion
-
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        // #region agent log - sendCommand timeout
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:sendCommand",
-              message: "sendCommand timeout",
-              data: {
-                command,
-                commandId,
-                timeout,
-                pendingCommandsCount: this.pendingCommands.size,
-                allPendingCommands: Array.from(
-                  this.pendingCommands.entries()
-                ).map(([id, cmd]) => ({ id, command: cmd.command })),
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "C",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
         this.pendingCommands.delete(commandId);
         
         // Provide helpful error message with troubleshooting steps
@@ -509,26 +332,8 @@ export class RS485Comm extends EventEmitter {
         )}`
       );
 
-      // Write command
+        // Write command
       this.serialPort.write(commandStr, (writeError) => {
-        // #region agent log - sendCommand write callback
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:sendCommand",
-              message: "sendCommand write callback",
-              data: { commandId, writeError: writeError?.message },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "C",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
         if (writeError) {
           clearTimeout(timer);
           this.pendingCommands.delete(commandId);
@@ -539,24 +344,6 @@ export class RS485Comm extends EventEmitter {
         // Ensure data is flushed to hardware (critical for RS-485)
         // This must complete before the Promise can resolve, preventing race conditions
         this.serialPort.drain((drainError) => {
-          // #region agent log - sendCommand drain callback
-          fetch(
-            "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                location: "rs485Comm.js:sendCommand",
-                message: "sendCommand drain callback",
-                data: { commandId, drainError: drainError?.message },
-                timestamp: Date.now(),
-                sessionId: "debug-session",
-                runId: "run1",
-                hypothesisId: "C",
-              }),
-            }
-          ).catch(() => {});
-          // #endregion
           if (drainError) {
             clearTimeout(timer);
             this.pendingCommands.delete(commandId);
@@ -574,6 +361,47 @@ export class RS485Comm extends EventEmitter {
           // The outer Promise will resolve when response is received via handleResponse()
         });
       });
+    }).catch(async (error) => {
+      // Handle corruption errors with automatic retry
+      if (error instanceof CorruptedResponseError && error.isRetryable && retryCount < this.maxRetries) {
+        const newRetryCount = retryCount + 1;
+        console.log(
+          `[RS485 RETRY] ${this.port}: Command "${command}" failed due to corruption (${(error.highBitRatio * 100).toFixed(1)}% high-bit bytes)`
+        );
+        console.log(
+          `[RS485 RETRY] ${this.port}: Retrying (attempt ${newRetryCount}/${this.maxRetries})...`
+        );
+        
+        // Small delay before retry to allow hardware to stabilize
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        
+        // Retry the command
+        try {
+          return await this.sendCommand(command, timeout, newRetryCount);
+        } catch (retryError) {
+          // If retry also fails with corruption and we've reached max retries, give up
+          if (retryError instanceof CorruptedResponseError) {
+            if (newRetryCount >= this.maxRetries) {
+              console.error(
+                `[RS485 ERROR] ${this.port}: Command "${command}" failed after ${this.maxRetries} retries due to persistent corruption`
+              );
+              console.error(
+                `[RS485 ERROR] ${this.port}: This indicates a persistent hardware issue with the RS485 connection`
+              );
+              throw new Error(
+                `Command "${command}" failed after ${this.maxRetries} retries due to corrupted responses. ` +
+                `Last corruption: ${(retryError.highBitRatio * 100).toFixed(1)}% high-bit bytes. ` +
+                `Check RS485 hardware (transceiver, wiring, termination resistors).`
+              );
+            }
+            // Still have retries left, let it propagate to be caught by outer retry logic
+          }
+          throw retryError;
+        }
+      }
+      
+      // Not a corruption error or max retries reached, throw as-is
+      throw error;
     });
   }
 
@@ -583,55 +411,16 @@ export class RS485Comm extends EventEmitter {
    */
   handleResponse(data) {
     const timestamp = Date.now();
+    const bytes = data ? Array.from(Buffer.from(data)) : [];
+    const highBitCount = bytes.filter((b) => b >= 0x80).length;
+    const hasCorruption = bytes.length > 0 && highBitCount / bytes.length > 0.1;
     
     // CAPTURE EVERYTHING - Log all incoming data for analysis
     console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Processing response: "${data}" (len=${data?.length || 0})`);
     
-    // #region agent log - handleResponse entry
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:handleResponse",
-        message: "handleResponse called",
-        data: {
-          data,
-          dataLength: data?.length,
-          pendingCommandsCount: this.pendingCommands.size,
-          pendingCommandIds: Array.from(this.pendingCommands.keys()),
-          pendingCommands: Array.from(this.pendingCommands.entries()).map(
-            ([id, cmd]) => ({ id, command: cmd.command })
-          ),
-          timestamp,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "B",
-      }),
-    }).catch(() => {});
-    // #endregion
     // Skip empty lines
     if (!data || data.length === 0) {
       console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Empty data, skipping`);
-      // #region agent log - handleResponse empty data
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:handleResponse",
-            message: "handleResponse empty data skipped",
-            data: { data, dataLength: data?.length },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "B",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       return;
     }
 
@@ -654,30 +443,36 @@ export class RS485Comm extends EventEmitter {
         !lower.startsWith("[err"));
 
     if (isFiltered) {
-      // #region agent log - handleResponse filtered debug message
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:handleResponse",
-            message: "handleResponse filtered debug message",
-            data: { data, lower, isFiltered },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "B",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       // Always log filtered messages to see what firmware is sending - CAPTURE EVERYTHING
       console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filtered debug message: "${data}"`);
       console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filter reason: contains debug markers`);
       return;
     }
 
+    // Check for corruption in the response data BEFORE attempting to fix it
+    const responseBytes = Array.from(Buffer.from(data));
+    const responseHighBitCount = responseBytes.filter((b) => b >= 0x80).length;
+    const responseHighBitRatio = responseBytes.length > 0 ? responseHighBitCount / responseBytes.length : 0;
+    
+    // If corruption is detected, log it but still try to process
+    if (responseHighBitRatio > 0.1) {
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ CORRUPTED RESPONSE DETECTED in handleResponse`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}%`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: This response will likely fail to match any command`
+      );
+    }
+    
     // Handle responses that might have been corrupted but are still recognizable
     // Try to fix common corruption patterns before matching
     let cleanedData = data;
@@ -752,39 +547,52 @@ export class RS485Comm extends EventEmitter {
       }
     }
     
+    // Check if response is too corrupted to be useful
+    // If high-bit ratio is > 30%, reject it entirely (too corrupted to fix)
+    if (responseHighBitRatio > 0.3) {
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ REJECTING HIGHLY CORRUPTED RESPONSE`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}% (threshold: 30%)`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`
+      );
+      console.error(
+        `[RS485 ERROR @${timestamp}] ${this.port}: This response is too corrupted to process - will trigger retry`
+      );
+      
+      // Try to match it to a pending command and reject with corruption error for retry
+      const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
+        ([id1], [id2]) => id1 - id2
+      );
+      
+      if (sortedCommands.length > 0) {
+        const [id, pending] = sortedCommands[0];
+        clearTimeout(pending.timer);
+        this.pendingCommands.delete(id);
+        
+        const corruptionError = new CorruptedResponseError(
+          `Response corrupted (${(responseHighBitRatio * 100).toFixed(1)}% high-bit bytes): ${data}`,
+          data,
+          responseHighBitRatio
+        );
+        pending.reject(corruptionError);
+        return;
+      }
+      
+      // No pending command, emit as unsolicited data
+      this.emit("data", cleanedData);
+      return;
+    }
+    
     // Find matching pending command (FIFO - match oldest command first)
     // This ensures responses match commands in order, preventing race conditions
     if (
       cleanedData.toUpperCase().startsWith("OK") ||
       cleanedData.toUpperCase().startsWith("ERR")
     ) {
-      // #region agent log - handleResponse matched OK/ERR
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "rs485Comm.js:handleResponse",
-            message: "handleResponse matched OK/ERR",
-            data: {
-              originalData: data,
-              cleanedData,
-              isOK: cleanedData.toUpperCase().startsWith("OK"),
-              pendingCommandsCount: this.pendingCommands.size,
-              pendingCommandIds: Array.from(this.pendingCommands.keys()),
-              pendingCommands: Array.from(this.pendingCommands.entries()).map(
-                ([id, cmd]) => ({ id, command: cmd.command })
-              ),
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "B",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       // Get all pending commands sorted by ID (oldest first)
       const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
         ([id1], [id2]) => id1 - id2
@@ -793,29 +601,6 @@ export class RS485Comm extends EventEmitter {
       // Match to oldest pending command (FIFO)
       if (sortedCommands.length > 0) {
         const [id, pending] = sortedCommands[0];
-        // #region agent log - handleResponse resolving command
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:handleResponse",
-              message: "handleResponse resolving command",
-              data: {
-                commandId: id,
-                pendingCommand: pending.command,
-                originalResponse: data,
-                cleanedResponse: cleanedData,
-              },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "B",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
         clearTimeout(pending.timer);
         this.pendingCommands.delete(id);
 
@@ -824,6 +609,19 @@ export class RS485Comm extends EventEmitter {
           `[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`
         );
 
+        // Check for corruption in the response (even if it's OK or ERR)
+        // If corruption is between 10-30%, retry the command
+        if (responseHighBitRatio > 0.1 && responseHighBitRatio <= 0.3) {
+          const corruptionError = new CorruptedResponseError(
+            `Response corrupted (${(responseHighBitRatio * 100).toFixed(1)}% high-bit bytes): ${cleanedData}`,
+            data,
+            responseHighBitRatio
+          );
+          pending.reject(corruptionError);
+          return;
+        }
+
+        // Response is clean (or corruption < 10%), process normally
         if (cleanedData.toUpperCase().startsWith("OK")) {
           pending.resolve(cleanedData);
         } else {
@@ -839,49 +637,10 @@ export class RS485Comm extends EventEmitter {
         console.log(
           `[RS485 INFO] ${this.port}: This might be a late response from a previous command that timed out`
         );
-        // #region agent log - handleResponse no pending command
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "rs485Comm.js:handleResponse",
-              message: "handleResponse no pending command",
-              data: { originalData: data, cleanedData },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "B",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
       }
     }
 
     // If no matching command, emit as unsolicited data
-    // #region agent log - handleResponse unsolicited data
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:handleResponse",
-        message: "handleResponse unsolicited data",
-        data: {
-          originalData: data,
-          cleanedData,
-          startsWithOK: cleanedData.toUpperCase().startsWith("OK"),
-          startsWithERR: cleanedData.toUpperCase().startsWith("ERR"),
-          pendingCommandsCount: this.pendingCommands.size,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "B",
-      }),
-    }).catch(() => {});
-    // #endregion
     console.log(
       `[RS485 WARNING] ${this.port}: Received data that doesn't match OK/ERR format or has no pending command: ${cleanedData}${data !== cleanedData ? ` (original: ${data})` : ""}`
     );
@@ -903,16 +662,17 @@ export class RS485Comm extends EventEmitter {
    * Get node type from firmware
    * @returns {Promise<string>}
    */
-  async getNodeType() {
-    return this.sendCommand("NODE_TYPE");
+  async getNodeType(timeout = null) {
+    return this.sendCommand("NODE_TYPE", timeout || this.timeout);
   }
 
   /**
    * Send SET_CONFIG command
    * @param {Object} config - Configuration object
+   * @param {number} timeout - Optional timeout in milliseconds
    * @returns {Promise<string>}
    */
-  async setConfig(config) {
+  async setConfig(config, timeout = null) {
     // Format: SET_CONFIG ch=5 rate=6m8 pl=128 len=64 pwr=5 rate_hz=100
     // Use short code "CFG" for better reliability with long commands
     // Firmware supports both "CFG" (short) and "SET_CONFIG" (full)
@@ -948,49 +708,9 @@ export class RS485Comm extends EventEmitter {
     const command = `CFG ${params.join(" ")}`;
     console.log(`[RS485] Sending CFG command to port ${this.port}: ${command}`);
 
-    // #region agent log - SET_CONFIG entry
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:setConfig",
-        message: "SET_CONFIG called",
-        data: { config, params, command },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
-
-    // #region agent log - Debug SET_CONFIG command
-    console.log(`[RS485 SET_CONFIG] ${this.port}: Command="${command}"`);
-    console.log(
-      `[RS485 SET_CONFIG] ${this.port}: Config=`,
-      JSON.stringify(config, null, 2)
-    );
-    console.log(`[RS485 SET_CONFIG] ${this.port}: Params=`, params);
-    // #endregion
-
     // Use longer timeout for SET_CONFIG commands (firmware waits up to 2 seconds for incomplete commands)
-    const response = await this.sendCommand(command, 10000); // Increased timeout to 10 seconds
-
-    // #region agent log - SET_CONFIG response
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "rs485Comm.js:setConfig",
-        message: "SET_CONFIG response",
-        data: { response, isError: response.startsWith("ERR") },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
+    const configTimeout = timeout || 10000; // Default 10 seconds, but allow override
+    const response = await this.sendCommand(command, configTimeout);
 
     return response;
   }
@@ -1000,10 +720,10 @@ export class RS485Comm extends EventEmitter {
    * Use short code "STRT" for better reliability (firmware supports both)
    * @returns {Promise<string>}
    */
-  async startTest() {
+  async startTest(timeout = null) {
     // Firmware supports both "STRT" (short) and "START_TEST" (full)
     console.log(`[RS485] Sending START command to port ${this.port} (isOpen: ${this.isOpen})`);
-    return this.sendCommand("STRT");
+    return this.sendCommand("STRT", timeout || this.timeout);
   }
 
   /**
@@ -1011,10 +731,10 @@ export class RS485Comm extends EventEmitter {
    * Use short code "STOP" for better reliability (firmware supports both)
    * @returns {Promise<string>}
    */
-  async stopTest() {
+  async stopTest(timeout = null) {
     // Firmware supports both "STOP" (short) and "STOP_TEST" (full)
     // Use short code for better reliability
-    return this.sendCommand("STOP");
+    return this.sendCommand("STOP", timeout || this.timeout);
   }
 
   /**
@@ -1022,9 +742,9 @@ export class RS485Comm extends EventEmitter {
    * Use short code "STAT" for better reliability (firmware supports both)
    * @returns {Promise<string>}
    */
-  async getStats() {
+  async getStats(timeout = null) {
     // Firmware supports both "STAT" (short) and "GET_STATS" (full)
-    return this.sendCommand("STAT");
+    return this.sendCommand("STAT", timeout || this.timeout);
   }
 
   /**
@@ -1032,9 +752,9 @@ export class RS485Comm extends EventEmitter {
    * Use short code "RST" for better reliability (firmware supports both)
    * @returns {Promise<string>}
    */
-  async resetStats() {
+  async resetStats(timeout = null) {
     // Firmware supports both "RST" (short) and "RESET_STATS" (full)
-    return this.sendCommand("RST");
+    return this.sendCommand("RST", timeout || this.timeout);
   }
 
   /**

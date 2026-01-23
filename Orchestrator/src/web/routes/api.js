@@ -430,9 +430,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
 
   /**
    * @swagger
-   * /api/nodes/{nodeId}/init:
+   * /api/nodes/{nodeId}/cfg:
    *   post:
-   *     summary: Initialize specific node with defaults
+   *     summary: Configure specific node
    *     tags: [Node Control]
    *     parameters:
    *       - in: path
@@ -441,12 +441,37 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *         schema: { type: string, enum: [A, B] }
    *     responses:
    *       200:
-   *         description: Node initialized
+   *         description: Configuration command sent
    */
-  router.post('/nodes/:nodeId/init', async (req, res) => {
+  router.post('/nodes/:nodeId/cfg', async (req, res) => {
     try {
       const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
-      const response = await node.rs485Comm.sendCommand('INIT');
+      const response = await node.rs485Comm.sendCommand('CFG');
+      res.json({ response });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/node-type:
+   *   post:
+   *     summary: Get node type from specific node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node type command sent
+   */
+  router.post('/nodes/:nodeId/node-type', async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand('NODE_TYPE');
       res.json({ response });
     } catch (error) {
       res.status(500).json({ error: error.message });
