@@ -64,16 +64,18 @@ async function main() {
 
     // Test connectivity with PING
     console.log('Testing connectivity...');
+    const greenColor = '\x1b[32m';
+    const resetColor = '\x1b[0m';
     const pingA = await nodeA.ping();
     if (pingA) {
-      console.log('✓ Node A PING successful');
+      console.log(`${greenColor}✓ Node A PING successful${resetColor}`);
     } else {
       console.error('✗ Node A PING failed - check connection');
     }
 
     const pingB = await nodeB.ping();
     if (pingB) {
-      console.log('✓ Node B PING successful');
+      console.log(`${greenColor}✓ Node B PING successful${resetColor}`);
     } else {
       console.error('✗ Node B PING failed - check connection');
     }

@@ -109,40 +109,6 @@ export class NodeController extends EventEmitter {
   }
 
   /**
-   * Send command with retry logic for Node B (which is less reliable)
-   * @param {Function} commandFn - Function that returns a promise for the command
-   * @param {number} maxRetries - Maximum number of retries (default: 3 for Node B, 1 for Node A)
-   * @param {number} retryDelay - Delay between retries in ms (default: 200ms)
-   * @returns {Promise<any>}
-   */
-  async sendCommandWithRetry(commandFn, maxRetries = null, retryDelay = 200) {
-    // Node B needs more retries due to intermittent responses
-    if (maxRetries === null) {
-      maxRetries = this.nodeId === 'B' ? 3 : 1;
-    }
-    
-    let lastError = null;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`[NodeController ${this.nodeId}] Retry attempt ${attempt}/${maxRetries}...`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-        }
-        return await commandFn();
-      } catch (error) {
-        lastError = error;
-        const isTimeout = error.message && error.message.includes('timeout');
-        if (isTimeout && attempt < maxRetries) {
-          console.warn(`[NodeController ${this.nodeId}] Command failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message.split('\n')[0]}`);
-          continue;
-        }
-        throw error;
-      }
-    }
-    throw lastError;
-  }
-
-  /**
    * Ping node to check connectivity
    * @returns {Promise<boolean>}
    */
@@ -151,9 +117,7 @@ export class NodeController extends EventEmitter {
       // Use longer timeout for Node B (which is less reliable)
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
       
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.sendCommand("PNG", timeout);
-      });
+      const response = await this.rs485Comm.sendCommand("PNG", timeout);
       
       return response.startsWith("OK");
     } catch (error) {
@@ -181,11 +145,9 @@ export class NodeController extends EventEmitter {
    */
   async getFirmwareNodeType() {
     try {
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.getNodeType(timeout);
-      });
+      const response = await this.rs485Comm.getNodeType(timeout);
       if (response && response.startsWith("OK NODE_TYPE=")) {
         const type = response.split("=")[1];
         const trimmedType = type.trim();
@@ -222,11 +184,9 @@ export class NodeController extends EventEmitter {
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending configuration...`);
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 15000 : 10000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.setConfig(config, timeout);
-      });
+      const response = await this.rs485Comm.setConfig(config, timeout);
       console.log(`[NodeController ${this.nodeId}] Configuration response: ${response}`);
       
       // Firmware responds with "OK CONFIG" (not "OK CONFIG_SET")
@@ -234,7 +194,9 @@ export class NodeController extends EventEmitter {
         this.config = { ...config };
         this.setState(NodeState.CONFIGURED);
         this.emit("configured", config);
-        console.log(`[NodeController ${this.nodeId}] ✓ Configuration successful`);
+        const greenColor = '\x1b[32m';
+        const resetColor = '\x1b[0m';
+        console.log(`${greenColor}[NodeController ${this.nodeId}] ✓ Configuration successful${resetColor}`);
         return true;
       } else {
         const errorMsg = `Configuration failed: ${response}`;
@@ -269,18 +231,18 @@ export class NodeController extends EventEmitter {
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending START command...`);
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.startTest(timeout);
-      });
+      const response = await this.rs485Comm.startTest(timeout);
       console.log(`[NodeController ${this.nodeId}] START response: ${response}`);
       
       // Firmware responds with "OK START" (not "OK TEST_STARTED")
       if (response.startsWith("OK START")) {
         this.setState(NodeState.RUNNING);
         this.emit("testStarted");
-        console.log(`[NodeController ${this.nodeId}] ✓ Test started successfully`);
+        const greenColor = '\x1b[32m';
+        const resetColor = '\x1b[0m';
+        console.log(`${greenColor}[NodeController ${this.nodeId}] ✓ Test started successfully${resetColor}`);
         return true;
       } else {
         const errorMsg = `Start test failed: ${response}`;
@@ -312,11 +274,9 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.stopTest(timeout);
-      });
+      const response = await this.rs485Comm.stopTest(timeout);
       if (response.startsWith("OK STOP")) {
         this.setState(NodeState.STOPPED);
         this.emit("testStopped");
@@ -348,11 +308,9 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.getStats(timeout);
-      });
+      const response = await this.rs485Comm.getStats(timeout);
       if (response.startsWith("OK STATS")) {
         this.stats = this.parseStats(response);
         this.emit("statsUpdated", this.stats);
@@ -468,11 +426,9 @@ export class NodeController extends EventEmitter {
    */
   async resetStats() {
     try {
-      // Node B needs longer timeout and retries
+      // Node B needs longer timeout
       const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      const response = await this.sendCommandWithRetry(async () => {
-        return await this.rs485Comm.resetStats(timeout);
-      });
+      const response = await this.rs485Comm.resetStats(timeout);
       if (response.startsWith("OK")) {
         this.stats = null;
         this.emit("statsReset");

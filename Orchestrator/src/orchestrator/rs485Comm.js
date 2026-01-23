@@ -20,12 +20,11 @@ export class CorruptedResponseError extends Error {
  * Handles serial communication with UWB nodes via RS-485
  */
 export class RS485Comm extends EventEmitter {
-  constructor(port, baudrate = 115200, timeout = 1000, maxRetries = 3) {
+  constructor(port, baudrate = 115200, timeout = 1000) {
     super();
     this.port = port;
     this.baudrate = baudrate;
     this.timeout = timeout;
-    this.maxRetries = maxRetries; // Maximum retries for corrupted responses
     this.serialPort = null;
     this.parser = null;
     this.isOpen = false;
@@ -256,13 +255,12 @@ export class RS485Comm extends EventEmitter {
   }
 
   /**
-   * Send command and wait for response with automatic retry on corruption
+   * Send command and wait for response
    * @param {string} command - ASCII command to send
    * @param {number} timeout - Timeout in milliseconds
-   * @param {number} retryCount - Internal retry counter (used for recursion)
    * @returns {Promise<string>} Response string
    */
-  async sendCommand(command, timeout = this.timeout, retryCount = 0) {
+  async sendCommand(command, timeout = this.timeout) {
     // Auto-open port if not already open (allow sending commands without connection check)
     if (!this.isOpen) {
       console.log(`[RS485] Port ${this.port} not open, attempting to open automatically...`);
@@ -361,46 +359,8 @@ export class RS485Comm extends EventEmitter {
           // The outer Promise will resolve when response is received via handleResponse()
         });
       });
-    }).catch(async (error) => {
-      // Handle corruption errors with automatic retry
-      if (error instanceof CorruptedResponseError && error.isRetryable && retryCount < this.maxRetries) {
-        const newRetryCount = retryCount + 1;
-        console.log(
-          `[RS485 RETRY] ${this.port}: Command "${command}" failed due to corruption (${(error.highBitRatio * 100).toFixed(1)}% high-bit bytes)`
-        );
-        console.log(
-          `[RS485 RETRY] ${this.port}: Retrying (attempt ${newRetryCount}/${this.maxRetries})...`
-        );
-        
-        // Small delay before retry to allow hardware to stabilize
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        
-        // Retry the command
-        try {
-          return await this.sendCommand(command, timeout, newRetryCount);
-        } catch (retryError) {
-          // If retry also fails with corruption and we've reached max retries, give up
-          if (retryError instanceof CorruptedResponseError) {
-            if (newRetryCount >= this.maxRetries) {
-              console.error(
-                `[RS485 ERROR] ${this.port}: Command "${command}" failed after ${this.maxRetries} retries due to persistent corruption`
-              );
-              console.error(
-                `[RS485 ERROR] ${this.port}: This indicates a persistent hardware issue with the RS485 connection`
-              );
-              throw new Error(
-                `Command "${command}" failed after ${this.maxRetries} retries due to corrupted responses. ` +
-                `Last corruption: ${(retryError.highBitRatio * 100).toFixed(1)}% high-bit bytes. ` +
-                `Check RS485 hardware (transceiver, wiring, termination resistors).`
-              );
-            }
-            // Still have retries left, let it propagate to be caught by outer retry logic
-          }
-          throw retryError;
-        }
-      }
-      
-      // Not a corruption error or max retries reached, throw as-is
+    }).catch((error) => {
+      // Throw error as-is, no retry logic
       throw error;
     });
   }
@@ -560,10 +520,10 @@ export class RS485Comm extends EventEmitter {
         `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: This response is too corrupted to process - will trigger retry`
+        `[RS485 ERROR @${timestamp}] ${this.port}: This response is too corrupted to process`
       );
       
-      // Try to match it to a pending command and reject with corruption error for retry
+      // Try to match it to a pending command and reject with corruption error
       const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
         ([id1], [id2]) => id1 - id2
       );
@@ -604,13 +564,17 @@ export class RS485Comm extends EventEmitter {
         clearTimeout(pending.timer);
         this.pendingCommands.delete(id);
 
-        // Log successful response match
+        // Log successful response match (green for OK responses)
+        const greenColor = '\x1b[32m';
+        const resetColor = '\x1b[0m';
+        const isOkResponse = cleanedData.toUpperCase().startsWith("OK");
+        const colorCode = isOkResponse ? greenColor : '';
         console.log(
-          `[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`
+          `${colorCode}[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}${resetColor}`
         );
 
         // Check for corruption in the response (even if it's OK or ERR)
-        // If corruption is between 10-30%, retry the command
+        // If corruption is between 10-30%, reject with corruption error
         if (responseHighBitRatio > 0.1 && responseHighBitRatio <= 0.3) {
           const corruptionError = new CorruptedResponseError(
             `Response corrupted (${(responseHighBitRatio * 100).toFixed(1)}% high-bit bytes): ${cleanedData}`,

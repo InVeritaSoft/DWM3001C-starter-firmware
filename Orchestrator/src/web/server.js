@@ -210,7 +210,9 @@ class WebServer {
         try {
           const pingResult = await this.nodeA.ping();
           if (pingResult) {
-            console.log("✓ Node A PING successful");
+            const greenColor = '\x1b[32m';
+            const resetColor = '\x1b[0m';
+            console.log(`${greenColor}✓ Node A PING successful${resetColor}`);
           } else {
             console.warn(
               "⚠️  Node A PING failed - firmware may not be responding"
@@ -218,33 +220,6 @@ class WebServer {
           }
         } catch (pingError) {
           console.warn(`⚠️  Node A PING error: ${pingError.message}`);
-        }
-
-        // Verify Node A firmware type
-        const nodeAType = await this.nodeA.getFirmwareNodeType();
-        if (nodeAType) {
-          console.log(`Node A firmware type: ${nodeAType} (expected: TX)`);
-          if (nodeAType !== "A") {
-            console.warn(
-              `⚠️  WARNING: Node A firmware is type '${nodeAType}' but expected 'TX'!`
-            );
-            console.warn(
-              `⚠️  Rebuild Node A (TX) with: .\\set-node-tx.ps1 && .\\build.ps1 && .\\flash.ps1`
-            );
-          }
-        } else {
-          console.warn(
-            `⚠️  WARNING: Could not determine Node A firmware type (NODE_TYPE command failed or returned null)`
-          );
-          console.warn(
-            `⚠️  This indicates Node A firmware may not be running the orchestrator example`
-          );
-          console.warn(
-            `⚠️  Rebuild and flash Node A (TX) with: .\\build-and-flash-tx.ps1`
-          );
-          console.warn(
-            `⚠️  Or use: .\\set-node-tx.ps1 && .\\build.ps1 && .\\flash.ps1`
-          );
         }
       } catch (nodeAError) {
         console.error(`Failed to connect to Node A: ${nodeAError.message}`);
@@ -261,7 +236,9 @@ class WebServer {
         try {
           const pingResult = await this.nodeB.ping();
           if (pingResult) {
-            console.log("✓ Node B PING successful");
+            const greenColor = '\x1b[32m';
+            const resetColor = '\x1b[0m';
+            console.log(`${greenColor}✓ Node B PING successful${resetColor}`);
           } else {
             console.warn(
               "⚠️  Node B PING failed - firmware may not be responding"
@@ -269,54 +246,6 @@ class WebServer {
           }
         } catch (pingError) {
           console.warn(`⚠️  Node B PING error: ${pingError.message}`);
-        }
-
-        // Verify Node B firmware type
-        const nodeBType = await this.nodeB.getFirmwareNodeType();
-        // #region agent log - server Node B type check
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "server.js:start",
-              message: "Node B firmware type check",
-              data: { nodeBType, expected: "RX", isNull: nodeBType === null },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "A",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
-        if (nodeBType) {
-          console.log(`Node B firmware type: ${nodeBType} (expected: RX)`);
-          if (nodeBType !== "RX") {
-            console.warn(
-              `⚠️  WARNING: Node B firmware is type '${nodeBType}' but expected 'RX'!`
-            );
-            console.warn(
-              `⚠️  Rebuild Node B (RX) with: .\\build-and-flash-rx.ps1`
-            );
-            console.warn(
-              `⚠️  Or use: .\\set-node-rx.ps1 && .\\build.ps1 && .\\flash.ps1`
-            );
-          }
-        } else {
-          console.warn(
-            `⚠️  WARNING: Could not determine Node B firmware type (NODE_TYPE command failed or returned null)`
-          );
-          console.warn(
-            `⚠️  This indicates Node B firmware may not be running the orchestrator example`
-          );
-          console.warn(
-            `⚠️  Rebuild and flash Node B (RX) with: .\\build-and-flash-rx.ps1`
-          );
-          console.warn(
-            `⚠️  Or use: .\\set-node-rx.ps1 && .\\build.ps1 && .\\flash.ps1`
-          );
         }
       } catch (nodeBError) {
         console.error(`Failed to connect to Node B: ${nodeBError.message}`);

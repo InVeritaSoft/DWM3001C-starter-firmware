@@ -118,16 +118,18 @@ export class TestRunner extends EventEmitter {
       console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
       console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
       
+      const greenColor = '\x1b[32m';
+      const resetColor = '\x1b[0m';
       const [resultA, resultB] = await Promise.allSettled([
         this.nodeA.configure(uwbConfig).then(() => {
-          console.log("✓ Node A configured successfully");
+          console.log(`${greenColor}✓ Node A configured successfully${resetColor}`);
           return "Node A";
         }).catch((err) => {
           console.error(`✗ Node A configuration failed: ${err.message}`);
           throw err;
         }),
         this.nodeB.configure(uwbConfig).then(() => {
-          console.log("✓ Node B configured successfully");
+          console.log(`${greenColor}✓ Node B configured successfully${resetColor}`);
           return "Node B";
         }).catch((err) => {
           console.error(`✗ Node B configuration failed: ${err.message}`);
@@ -175,16 +177,18 @@ export class TestRunner extends EventEmitter {
       console.log("SENDING START COMMANDS TO BOTH NODES SIMULTANEOUSLY");
       console.log("=".repeat(60));
       
+      const greenColor = '\x1b[32m';
+      const resetColor = '\x1b[0m';
       const [resultA, resultB] = await Promise.allSettled([
         this.nodeA.startTest().then(() => {
-          console.log("✓ Node A started successfully");
+          console.log(`${greenColor}✓ Node A started successfully${resetColor}`);
           return "Node A";
         }).catch((err) => {
           console.error(`✗ Node A start failed: ${err.message}`);
           throw err;
         }),
         this.nodeB.startTest().then(() => {
-          console.log("✓ Node B started successfully");
+          console.log(`${greenColor}✓ Node B started successfully${resetColor}`);
           return "Node B";
         }).catch((err) => {
           console.error(`✗ Node B start failed: ${err.message}`);
@@ -333,16 +337,18 @@ export class TestRunner extends EventEmitter {
       console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
       console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
       
+      const greenColor = '\x1b[32m';
+      const resetColor = '\x1b[0m';
       const [resultA, resultB] = await Promise.allSettled([
         this.nodeA.stopTest().then(() => {
-          console.log("✓ Node A stopped successfully");
+          console.log(`${greenColor}✓ Node A stopped successfully${resetColor}`);
           return "Node A";
         }).catch((err) => {
           console.error(`✗ Node A stop failed: ${err.message}`);
           throw err;
         }),
         this.nodeB.stopTest().then(() => {
-          console.log("✓ Node B stopped successfully");
+          console.log(`${greenColor}✓ Node B stopped successfully${resetColor}`);
           return "Node B";
         }).catch((err) => {
           console.error(`✗ Node B stop failed: ${err.message}`);
@@ -385,7 +391,9 @@ export class TestRunner extends EventEmitter {
 
       try {
         await this.runTest(test);
-        console.log(`Test ${test.run_name} completed successfully`);
+        const greenColor = '\x1b[32m';
+        const resetColor = '\x1b[0m';
+        console.log(`${greenColor}Test ${test.run_name} completed successfully${resetColor}`);
       } catch (error) {
         console.error(`Test ${test.run_name} failed:`, error.message);
         this.emit("testFailed", { test, error });

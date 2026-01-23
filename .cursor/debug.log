@@ -161,3 +161,4 @@
 {"location":"server.js:start","message":"Node B firmware type check","data":{"nodeBType":null,"expected":"RX","isNull":true},"timestamp":1769170557664,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}
 {"location":"server.js:start","message":"Node B firmware type check","data":{"nodeBType":null,"expected":"RX","isNull":true},"timestamp":1769170781967,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}
 {"location":"server.js:start","message":"Node B firmware type check","data":{"nodeBType":null,"expected":"RX","isNull":true},"timestamp":1769171025985,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}
+{"location":"server.js:start","message":"Node B firmware type check","data":{"nodeBType":null,"expected":"RX","isNull":true},"timestamp":1769173167789,"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}
