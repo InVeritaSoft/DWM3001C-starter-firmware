@@ -97,10 +97,18 @@ export const apiClient = {
   },
 
   /**
-   * Initialize specific node
+   * Configure specific node
    */
-  async initNode(nodeId) {
-    const response = await api.post(`/nodes/${nodeId}/init`);
+  async cfgNode(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/cfg`);
+    return response.data;
+  },
+
+  /**
+   * Get node type from specific node
+   */
+  async nodeType(nodeId) {
+    const response = await api.post(`/nodes/${nodeId}/node-type`);
     return response.data;
   },
 

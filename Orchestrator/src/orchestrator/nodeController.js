@@ -109,14 +109,52 @@ export class NodeController extends EventEmitter {
   }
 
   /**
+   * Send command with retry logic for Node B (which is less reliable)
+   * @param {Function} commandFn - Function that returns a promise for the command
+   * @param {number} maxRetries - Maximum number of retries (default: 3 for Node B, 1 for Node A)
+   * @param {number} retryDelay - Delay between retries in ms (default: 200ms)
+   * @returns {Promise<any>}
+   */
+  async sendCommandWithRetry(commandFn, maxRetries = null, retryDelay = 200) {
+    // Node B needs more retries due to intermittent responses
+    if (maxRetries === null) {
+      maxRetries = this.nodeId === 'B' ? 3 : 1;
+    }
+    
+    let lastError = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[NodeController ${this.nodeId}] Retry attempt ${attempt}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+        return await commandFn();
+      } catch (error) {
+        lastError = error;
+        const isTimeout = error.message && error.message.includes('timeout');
+        if (isTimeout && attempt < maxRetries) {
+          console.warn(`[NodeController ${this.nodeId}] Command failed (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message.split('\n')[0]}`);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  /**
    * Ping node to check connectivity
    * @returns {Promise<boolean>}
    */
   async ping() {
     try {
-      // Use longer timeout for initial PING (firmware may need time to respond)
-      // RS485 bridge adds latency, so increase timeout to 5 seconds
-      const response = await this.rs485Comm.sendCommand("PNG", 5000);
+      // Use longer timeout for Node B (which is less reliable)
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.sendCommand("PNG", timeout);
+      });
+      
       return response.startsWith("OK");
     } catch (error) {
       this.lastError = error.message;
@@ -129,6 +167,9 @@ export class NodeController extends EventEmitter {
         console.error(`   3. Serial port ${this.rs485Comm.port} is correct`);
         console.error(`   4. Baud rate: Should be 57600 for RS485 communication`);
         console.error(`   5. If you see corrupted data (high-bit bytes), check baud rate mismatch`);
+        if (this.nodeId === 'B') {
+          console.error(`   6. Node B is less reliable - check RS-485 wiring and termination`);
+        }
       }
       return false;
     }
@@ -139,111 +180,19 @@ export class NodeController extends EventEmitter {
    * @returns {Promise<string|null>}
    */
   async getFirmwareNodeType() {
-    // #region agent log - getFirmwareNodeType entry
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "nodeController.js:getFirmwareNodeType",
-        message: "getFirmwareNodeType called",
-        data: { nodeId: this.nodeId, isConnected: this.isConnected() },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
     try {
-      const response = await this.rs485Comm.getNodeType();
-      // #region agent log - getFirmwareNodeType response received
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "nodeController.js:getFirmwareNodeType",
-            message: "getFirmwareNodeType response received",
-            data: {
-              nodeId: this.nodeId,
-              response,
-              responseLength: response?.length,
-              startsWithOK: response && response.startsWith("OK NODE_TYPE="),
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "A",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.getNodeType(timeout);
+      });
       if (response && response.startsWith("OK NODE_TYPE=")) {
         const type = response.split("=")[1];
         const trimmedType = type.trim();
-        // #region agent log - getFirmwareNodeType success
-        fetch(
-          "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              location: "nodeController.js:getFirmwareNodeType",
-              message: "getFirmwareNodeType success",
-              data: { nodeId: this.nodeId, type: trimmedType },
-              timestamp: Date.now(),
-              sessionId: "debug-session",
-              runId: "run1",
-              hypothesisId: "A",
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
         return trimmedType;
       }
-      // #region agent log - getFirmwareNodeType invalid response format
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "nodeController.js:getFirmwareNodeType",
-            message: "getFirmwareNodeType invalid response format",
-            data: { nodeId: this.nodeId, response },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "A",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       return null;
     } catch (error) {
-      // #region agent log - getFirmwareNodeType error
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "nodeController.js:getFirmwareNodeType",
-            message: "getFirmwareNodeType error",
-            data: {
-              nodeId: this.nodeId,
-              errorMessage: error.message,
-              errorStack: error.stack,
-            },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "A",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       this.lastError = error.message;
       return null;
     }
@@ -273,7 +222,11 @@ export class NodeController extends EventEmitter {
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending configuration...`);
-      const response = await this.rs485Comm.setConfig(config);
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 15000 : 10000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.setConfig(config, timeout);
+      });
       console.log(`[NodeController ${this.nodeId}] Configuration response: ${response}`);
       
       // Firmware responds with "OK CONFIG" (not "OK CONFIG_SET")
@@ -316,7 +269,11 @@ export class NodeController extends EventEmitter {
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending START command...`);
-      const response = await this.rs485Comm.startTest();
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.startTest(timeout);
+      });
       console.log(`[NodeController ${this.nodeId}] START response: ${response}`);
       
       // Firmware responds with "OK START" (not "OK TEST_STARTED")
@@ -355,7 +312,11 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      const response = await this.rs485Comm.stopTest();
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.stopTest(timeout);
+      });
       if (response.startsWith("OK STOP")) {
         this.setState(NodeState.STOPPED);
         this.emit("testStopped");
@@ -387,7 +348,11 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      const response = await this.rs485Comm.getStats();
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.getStats(timeout);
+      });
       if (response.startsWith("OK STATS")) {
         this.stats = this.parseStats(response);
         this.emit("statsUpdated", this.stats);
@@ -409,21 +374,6 @@ export class NodeController extends EventEmitter {
    * @returns {Object}
    */
   parseStats(response) {
-    // #region agent log - parseStats entry
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "nodeController.js:parseStats",
-        message: "parseStats called",
-        data: { nodeId: this.nodeId, response },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "D",
-      }),
-    }).catch(() => {});
-    // #endregion
     const stats = {};
     const parts = response.split(" ");
 
@@ -457,27 +407,6 @@ export class NodeController extends EventEmitter {
       stats.frame_duration_us = stats.frame_dur;
     }
 
-    // #region agent log - parseStats parsed keys
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "nodeController.js:parseStats",
-        message: "parseStats parsed keys",
-        data: {
-          nodeId: this.nodeId,
-          statsKeys: Object.keys(stats),
-          hasTotalSent: stats.total_sent !== undefined,
-          hasTotalRx: stats.total_rx !== undefined,
-        },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "D",
-      }),
-    }).catch(() => {});
-    // #endregion
-
     // Node A (TX) stats
     if (this.nodeId === "A") {
       // Firmware v2 sends: sent=, attempted=, errors=, timeouts=, last_err=, frame_dur=
@@ -490,24 +419,6 @@ export class NodeController extends EventEmitter {
         last_error: stats.last_error || stats.last_err || 0,
         frame_duration_us: stats.frame_duration_us || stats.frame_dur || 0,
       };
-      // #region agent log - parseStats Node A result
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "nodeController.js:parseStats",
-            message: "parseStats Node A result",
-            data: { nodeId: this.nodeId, result },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "D",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       return result;
     }
 
@@ -515,24 +426,6 @@ export class NodeController extends EventEmitter {
     // Handle case where Node B firmware might be built as Node A type
     // If we get total_sent instead of total_rx, it means wrong firmware type
     if (stats.total_sent !== undefined && stats.total_rx === undefined) {
-      // #region agent log - parseStats Node B wrong firmware type
-      fetch(
-        "http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            location: "nodeController.js:parseStats",
-            message: "parseStats Node B wrong firmware type",
-            data: { nodeId: this.nodeId, response, stats },
-            timestamp: Date.now(),
-            sessionId: "debug-session",
-            runId: "run1",
-            hypothesisId: "D",
-          }),
-        }
-      ).catch(() => {});
-      // #endregion
       console.warn(
         `[NodeController] Node B returned total_sent instead of total_rx - firmware may be built as Node A type!`
       );
@@ -566,21 +459,6 @@ export class NodeController extends EventEmitter {
       pre_q_min: stats.pre_q_min || 0,
       pre_q_max: stats.pre_q_max || 0,
     };
-    // #region agent log - parseStats Node B normal result
-    fetch("http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "nodeController.js:parseStats",
-        message: "parseStats Node B normal result",
-        data: { nodeId: this.nodeId, result },
-        timestamp: Date.now(),
-        sessionId: "debug-session",
-        runId: "run1",
-        hypothesisId: "D",
-      }),
-    }).catch(() => {});
-    // #endregion
     return result;
   }
 
@@ -590,7 +468,11 @@ export class NodeController extends EventEmitter {
    */
   async resetStats() {
     try {
-      const response = await this.rs485Comm.resetStats();
+      // Node B needs longer timeout and retries
+      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const response = await this.sendCommandWithRetry(async () => {
+        return await this.rs485Comm.resetStats(timeout);
+      });
       if (response.startsWith("OK")) {
         this.stats = null;
         this.emit("statsReset");

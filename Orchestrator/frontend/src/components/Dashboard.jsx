@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRealtimeData } from "../hooks/useRealtimeData";
 import apiClient from "../services/api";
+import { useToast } from "./Toast";
 import NodeStatus from "./NodeStatus";
 import NodeControls from "./NodeControls";
 import MetricsChart from "./MetricsChart";
@@ -14,6 +15,7 @@ import "./Dashboard.css";
  */
 export default function Dashboard() {
   const { status, stats, connected, error, testReport, testRunning } = useRealtimeData();
+  const { showSuccess, showError } = useToast();
   const [testPlan, setTestPlan] = useState(null);
   const [currentTest, setCurrentTest] = useState(null);
   const [chartData, setChartData] = useState([]);
@@ -89,13 +91,14 @@ export default function Dashboard() {
 
       if (errors.length > 0) {
         console.error("Failed to start test on some nodes:", errors);
-        alert(`Failed to start test:\n${errors.join('\n')}`);
+        showError(`Failed to start test:\n${errors.join('\n')}`);
       } else {
         console.log("✓ Test started on both nodes");
+        showSuccess("Test started on both nodes");
       }
     } catch (error) {
       console.error("Failed to start test:", error);
-      alert(`Failed to start test: ${error.message || error}`);
+      showError(`Failed to start test: ${error.message || error}`);
     }
   };
 
@@ -118,13 +121,14 @@ export default function Dashboard() {
 
       if (errors.length > 0) {
         console.error("Failed to stop test on some nodes:", errors);
-        alert(`Failed to stop test:\n${errors.join('\n')}`);
+        showError(`Failed to stop test:\n${errors.join('\n')}`);
       } else {
         console.log("✓ Test stopped on both nodes");
+        showSuccess("Test stopped on both nodes");
       }
     } catch (error) {
       console.error("Failed to stop test:", error);
-      alert(`Failed to stop test: ${error.message || error}`);
+      showError(`Failed to stop test: ${error.message || error}`);
     }
   };
 
@@ -135,7 +139,7 @@ export default function Dashboard() {
       setGeneratedReport(report);
     } catch (error) {
       console.error("Failed to generate report:", error);
-      alert(`Failed to generate report: ${error.message || error}`);
+      showError(`Failed to generate report: ${error.message || error}`);
     } finally {
       setReportLoading(false);
     }
@@ -208,7 +212,6 @@ export default function Dashboard() {
             <button
               className="btn btn-danger"
               onClick={handleStopTest}
-              disabled={!testRunning}
             >
               Stop Test (Both Nodes)
             </button>

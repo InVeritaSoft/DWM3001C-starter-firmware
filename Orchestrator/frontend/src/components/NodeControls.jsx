@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import apiClient from '../services/api';
+import { useToast } from './Toast';
 import './NodeControls.css';
 
 /**
@@ -7,6 +8,7 @@ import './NodeControls.css';
  * Individual command buttons for each node
  */
 export default function NodeControls({ nodeId, connected, onCommandSent }) {
+  const { showError, showSuccess } = useToast();
   const [loading, setLoading] = useState({});
   const [lastResponse, setLastResponse] = useState(null);
 
@@ -24,8 +26,10 @@ export default function NodeControls({ nodeId, connected, onCommandSent }) {
         result = await apiClient.stopNode(nodeId);
       } else if (apiMethod === 'getStats') {
         result = await apiClient.getNodeStats(nodeId);
-      } else if (apiMethod === 'init') {
-        result = await apiClient.initNode(nodeId);
+      } else if (apiMethod === 'cfg') {
+        result = await apiClient.cfgNode(nodeId);
+      } else if (apiMethod === 'nodeType') {
+        result = await apiClient.nodeType(nodeId);
       } else if (apiMethod === 'resetStats') {
         result = await apiClient.resetNodeStats(nodeId);
       } else if (apiMethod === 'ping') {
@@ -33,12 +37,26 @@ export default function NodeControls({ nodeId, connected, onCommandSent }) {
       }
 
       setLastResponse({ command, result, success: true });
+      
+      // Show success toast with appropriate message
+      const commandNames = {
+        'PNG': 'PING',
+        'CFG': 'CONFIG',
+        'NODE_TYPE': 'NODE_TYPE',
+        'START': 'START',
+        'STOP': 'STOP',
+        'STAT': 'STATS',
+        'RST': 'RESET_STATS'
+      };
+      const commandName = commandNames[command] || command;
+      showSuccess(`Node ${nodeId}: ${commandName} command successful`);
+      
       if (onCommandSent) {
         onCommandSent(nodeId, command, result);
       }
     } catch (error) {
       setLastResponse({ command, error: error.message, success: false });
-      alert(`Command failed: ${error.message}`);
+      showError(`Node ${nodeId}: Command failed: ${error.message}`);
     } finally {
       setLoading(prev => ({ ...prev, [command]: false }));
     }
@@ -63,11 +81,19 @@ export default function NodeControls({ nodeId, connected, onCommandSent }) {
         </button>
         
         <button
-          className={buttonClass('INIT')}
-          onClick={() => handleCommand('INIT', 'init')}
-          disabled={loading['INIT']}
+          className={buttonClass('CFG')}
+          onClick={() => handleCommand('CFG', 'cfg')}
+          disabled={loading['CFG']}
         >
-          {loading['INIT'] ? '...' : 'INIT'}
+          {loading['CFG'] ? '...' : 'CFG'}
+        </button>
+        
+        <button
+          className={buttonClass('NODE_TYPE')}
+          onClick={() => handleCommand('NODE_TYPE', 'nodeType')}
+          disabled={loading['NODE_TYPE']}
+        >
+          {loading['NODE_TYPE'] ? '...' : 'NODE_TYPE'}
         </button>
         
         <button
