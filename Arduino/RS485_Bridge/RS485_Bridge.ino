@@ -126,8 +126,15 @@ void setup() {
   RS485Serial.begin(RS485_BAUD_RATE);
   DWMSerial.begin(DWM_BAUD_RATE);
   
-  // Set RS485 to receive mode
+  // Set RS485 to receive mode FIRST
   set_rs485_rx_mode();
+  
+  // CRITICAL: Set RS485 listener as default (must be done after begin)
+  RS485Serial.listen();
+  delay(10);
+  
+  Serial.print(F("[SETUP] RS485 listener active: "));
+  Serial.println(RS485Serial.isListening() ? "YES" : "NO");
   
   // Clear any garbage data
   while (RS485Serial.available()) RS485Serial.read();
@@ -171,15 +178,21 @@ void loop() {
   update_activity_leds();
   
   // PRIORITY: Check for commands from RS485 (orchestrator)
-  if (RS485Serial.available() && !waitingForDWMResponse) {
+  // CRITICAL: Always ensure RS485 is in RX mode and listening when not handling DWM
+  if (!waitingForDWMResponse) {
     // Ensure RS485 listener is active
     if (!RS485Serial.isListening()) {
       RS485Serial.listen();
       delay(5);
     }
     
-    // Ensure RS485 is in RX mode
+    // Ensure RS485 is in RX mode (always when waiting for commands)
     set_rs485_rx_mode();
+  }
+  
+  // Check for incoming command
+  if (RS485Serial.available() && !waitingForDWMResponse) {
+    Serial.println(F("[RS485] Data available - receiving command..."));
     
     if (rs485_receive_command(commandBuffer, COMMAND_BUFFER_SIZE)) {
       Serial.print(F("[RS485->] Command: \""));
@@ -295,6 +308,10 @@ bool rs485_receive_command(char* buffer, int maxLen) {
   int index = 0;
   unsigned long startTime = millis();
   unsigned long lastByteTime = startTime;
+  bool firstByte = true;
+  
+  Serial.print(F("[RS485 RX] Starting reception, available: "));
+  Serial.println(RS485Serial.available());
   
   while (index < maxLen - 1) {
     if (RS485Serial.available()) {
@@ -303,10 +320,24 @@ bool rs485_receive_command(char* buffer, int maxLen) {
       
       unsigned char c = (unsigned char)byteRead;
       
+      // Log first byte for debugging
+      if (firstByte) {
+        Serial.print(F("[RS485 RX] First byte: 0x"));
+        if (c < 0x10) Serial.print('0');
+        Serial.print(c, HEX);
+        Serial.print(F(" ('"));
+        if (c >= 32 && c < 127) Serial.print((char)c);
+        Serial.println(F("')"));
+        firstByte = false;
+      }
+      
       // Check for command terminator
       if (c == '\r' || c == '\n') {
         if (index > 0) {
           buffer[index] = '\0';
+          Serial.print(F("[RS485 RX] Command complete: \""));
+          Serial.print(buffer);
+          Serial.println(F("\""));
           return true;
         }
         // Skip empty terminators
@@ -323,8 +354,12 @@ bool rs485_receive_command(char* buffer, int maxLen) {
     if (millis() - startTime > 1000) {
       if (index > 0) {
         buffer[index] = '\0';
+        Serial.print(F("[RS485 RX] Timeout, partial: \""));
+        Serial.print(buffer);
+        Serial.println(F("\""));
         return true;  // Return partial command
       }
+      Serial.println(F("[RS485 RX] Timeout - no data"));
       return false;
     }
     
@@ -334,6 +369,7 @@ bool rs485_receive_command(char* buffer, int maxLen) {
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
+  Serial.println(F("[RS485 RX] Buffer full"));
   return false;
 }
 
@@ -341,14 +377,18 @@ bool rs485_receive_command(char* buffer, int maxLen) {
  * Send response to RS485 (orchestrator)
  */
 void rs485_send_response(const char* response) {
-  // Switch to TX mode
-  set_rs485_tx_mode();
+  Serial.print(F("[RS485 TX] Sending response: \""));
+  Serial.print(response);
+  Serial.println(F("\""));
   
   // Ensure RS485 listener is active
   if (!RS485Serial.isListening()) {
     RS485Serial.listen();
     delay(5);
   }
+  
+  // Switch to TX mode BEFORE sending
+  set_rs485_tx_mode();
   
   // Send response
   RS485Serial.print(response);
@@ -359,11 +399,13 @@ void rs485_send_response(const char* response) {
     RS485Serial.print("\r\n");
   }
   
-  // Wait for transmission to complete
-  delay(10);
+  // Wait for transmission to complete (critical for RS485)
+  delay(20);  // Increased delay for RS485 transmission
   
-  // Switch back to RX mode
+  // Switch back to RX mode AFTER transmission
   set_rs485_rx_mode();
+  
+  Serial.println(F("[RS485 TX] Response sent, back to RX mode"));
 }
 
 // ============================================================================
@@ -374,18 +416,33 @@ void rs485_send_response(const char* response) {
  * Send command to DWM3001CDK
  */
 void dwm_send_command(const char* command) {
+  Serial.print(F("[DWM TX] Sending: \""));
+  Serial.print(command);
+  Serial.println(F("\""));
+  
   // Ensure DWM listener is active
   if (!DWMSerial.isListening()) {
+    Serial.println(F("[DWM TX] Switching listener to DWM..."));
     DWMSerial.listen();
     delay(10);
+  }
+  
+  // Verify listener switch
+  if (!DWMSerial.isListening()) {
+    Serial.println(F("[DWM TX] ERROR: Listener switch failed!"));
+    return;
   }
   
   // Send command with terminator
   DWMSerial.print(command);
   DWMSerial.print("\r\n");
   
+  Serial.print(F("[DWM TX] Command sent, waiting for transmission..."));
+  
   // Wait for transmission to complete
   delay(50);
+  
+  Serial.println(F(" done"));
 }
 
 /**
@@ -394,9 +451,15 @@ void dwm_send_command(const char* command) {
 bool dwm_receive_response(char* buffer, int maxLen) {
   int index = 0;
   unsigned long startTime = millis();
+  bool firstByte = true;
+  
+  Serial.print(F("[DWM RX] Waiting for response (timeout="));
+  Serial.print(DWM_RESPONSE_TIMEOUT_MS);
+  Serial.println(F("ms)..."));
   
   // Ensure DWM listener is active
   if (!DWMSerial.isListening()) {
+    Serial.println(F("[DWM RX] Switching listener to DWM..."));
     DWMSerial.listen();
     delay(10);
   }
@@ -404,15 +467,35 @@ bool dwm_receive_response(char* buffer, int maxLen) {
   // Small stabilization delay
   delay(10);
   
+  // Check initial availability
+  int initialAvailable = DWMSerial.available();
+  if (initialAvailable > 0) {
+    Serial.print(F("[DWM RX] Already have "));
+    Serial.print(initialAvailable);
+    Serial.println(F(" bytes available"));
+  }
+  
   while (index < maxLen - 1) {
     // Periodically verify listener hasn't switched
     if (!DWMSerial.isListening() && waitingForDWMResponse) {
+      Serial.println(F("[DWM RX] WARNING: Listener switched away! Restoring..."));
       DWMSerial.listen();
       delay(10);
     }
     
     if (DWMSerial.available()) {
       char c = DWMSerial.read();
+      
+      // Log first byte
+      if (firstByte) {
+        Serial.print(F("[DWM RX] First byte: 0x"));
+        if ((unsigned char)c < 0x10) Serial.print('0');
+        Serial.print((unsigned char)c, HEX);
+        Serial.print(F(" ('"));
+        if (c >= 32 && c < 127) Serial.print(c);
+        Serial.println(F("')"));
+        firstByte = false;
+      }
       
       // Filter null bytes only
       if (c == 0x00) continue;
@@ -421,6 +504,9 @@ bool dwm_receive_response(char* buffer, int maxLen) {
       if (c == '\r' || c == '\n') {
         if (index > 0) {
           buffer[index] = '\0';
+          Serial.print(F("[DWM RX] Response complete: \""));
+          Serial.print(buffer);
+          Serial.println(F("\""));
           return true;
         }
         // Skip empty lines
@@ -436,20 +522,30 @@ bool dwm_receive_response(char* buffer, int maxLen) {
     }
     
     // Timeout check
-    if (millis() - startTime > DWM_RESPONSE_TIMEOUT_MS) {
+    unsigned long elapsed = millis() - startTime;
+    if (elapsed > DWM_RESPONSE_TIMEOUT_MS) {
       if (index > 0) {
         buffer[index] = '\0';
         // Return partial if it looks valid
         if (strncmp(buffer, "OK", 2) == 0 || strncmp(buffer, "ERR", 3) == 0) {
+          Serial.print(F("[DWM RX] Timeout but valid partial: \""));
+          Serial.print(buffer);
+          Serial.println(F("\""));
           return true;
         }
       }
+      Serial.print(F("[DWM RX] Timeout after "));
+      Serial.print(elapsed);
+      Serial.print(F("ms, received "));
+      Serial.print(index);
+      Serial.println(F(" bytes"));
       return false;
     }
   }
   
   // Buffer full
   buffer[maxLen - 1] = '\0';
+  Serial.println(F("[DWM RX] Buffer full"));
   return false;
 }
 
