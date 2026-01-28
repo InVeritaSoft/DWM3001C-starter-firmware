@@ -923,7 +923,10 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
-        // Stop test running flag first to prevent timer handler from starting new TX
+        // Send response IMMEDIATELY to prevent timeout (before any cleanup that might take time)
+        send_response("OK STOP");
+        
+        // Stop test running flag to prevent timer handler from starting new TX
         g_test_running = 0;
         
         // Stop timers immediately
@@ -938,9 +941,6 @@ static void parse_command(char *cmd)
         
         // Reset TX in progress flag in case it was stuck (non-blocking)
         g_tx_in_progress = 0;
-        
-        // Send response after cleanup (matches ex_22_orchestrator_v2 approach)
-        send_response("OK STOP");
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
