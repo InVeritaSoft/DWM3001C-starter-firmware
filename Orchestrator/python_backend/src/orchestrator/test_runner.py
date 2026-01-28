@@ -73,12 +73,9 @@ class TestRunner:
             # Step 5: Start periodic polling
             await self._start_polling(test)
             
-            # Step 6: Wait for test duration (or manual stop)
-            test_duration = self.config.get_test_config().get('default_test_duration_seconds', 30)
-            await asyncio.sleep(test_duration)
-            
-            # Step 7: Stop test
-            await self.stop_test()
+            # Step 6: Wait indefinitely until manually stopped
+            # Test will continue running until stop_test() is called
+            await self._wait_until_stopped()
             
         except Exception as error:
             self._emit('error', error)
@@ -285,6 +282,11 @@ class TestRunner:
             
         except Exception as error:
             self._emit('error', error)
+    
+    async def _wait_until_stopped(self) -> None:
+        """Wait until test is stopped (manually)"""
+        while self.is_running:
+            await asyncio.sleep(0.1)  # Check every 100ms
     
     async def stop_test(self) -> None:
         """Stop test"""

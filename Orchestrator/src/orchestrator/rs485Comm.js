@@ -52,7 +52,7 @@ export class RS485Comm extends EventEmitter {
 
       // Create readline parser
       this.parser = this.serialPort.pipe(
-        new ReadlineParser({ delimiter: "\r\n" })
+        new ReadlineParser({ delimiter: "\r\n" }),
       );
 
       // Handle incoming data
@@ -62,17 +62,19 @@ export class RS485Comm extends EventEmitter {
         // Always log RX for debugging (not just when DEBUG_RS485 is set)
         console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
         console.log(
-          `[RS485 LINE @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`
+          `[RS485 LINE @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`,
         );
         console.log(
-          `[RS485 LINE @${timestamp}] ${this.port}: Raw bytes: [${Array.from(Buffer.from(data))
+          `[RS485 LINE @${timestamp}] ${this.port}: Raw bytes: [${Array.from(
+            Buffer.from(data),
+          )
             .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
-            .join(", ")}]`
+            .join(", ")}]`,
         );
         console.log(
           `[RS485 LINE @${timestamp}] ${this.port}: Pending commands: ${
             this.pendingCommands.size
-          }, IDs: [${Array.from(this.pendingCommands.keys()).join(", ")}]`
+          }, IDs: [${Array.from(this.pendingCommands.keys()).join(", ")}]`,
         );
         this.handleResponse(trimmed);
       });
@@ -85,21 +87,25 @@ export class RS485Comm extends EventEmitter {
         const timestamp = Date.now();
         const hex = data.toString("hex");
         const ascii = data.toString("ascii").replace(/[^\x20-\x7E\r\n]/g, ".");
-        console.log(`[RS485 RAW @${timestamp}] ${this.port}: ${data.length} bytes - Hex=${hex}, ASCII="${ascii}"`);
-        
+        console.log(
+          `[RS485 RAW @${timestamp}] ${this.port}: ${data.length} bytes - Hex=${hex}, ASCII="${ascii}"`,
+        );
+
         // Log individual bytes for detailed analysis
         if (data.length > 0) {
           const byteList = Array.from(data)
             .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
             .join(", ");
-          console.log(`[RS485 BYTES @${timestamp}] ${this.port}: Bytes=[${byteList}]`);
+          console.log(
+            `[RS485 BYTES @${timestamp}] ${this.port}: Bytes=[${byteList}]`,
+          );
         }
 
         // Detect potential corruption patterns
         if (hex.length > 10) {
           const hexBytes = hex.match(/.{2}/g) || [];
           const hexHighBitCount = hexBytes.filter(
-            (b) => parseInt(b, 16) >= 0x80
+            (b) => parseInt(b, 16) >= 0x80,
           ).length;
           const repeatingPattern = hex.match(/(.{2})\1{3,}/);
           const alternatingPattern = hex.match(/f[0-9a-f]f[0-9a-f]f[0-9a-f]/i);
@@ -107,66 +113,62 @@ export class RS485Comm extends EventEmitter {
 
           // Lower threshold for corruption detection (10% instead of 50%)
           // This catches corruption earlier, especially for Node B
-          if (
-            highBitRatio > 0.1 ||
-            repeatingPattern ||
-            alternatingPattern
-          ) {
+          if (highBitRatio > 0.1 || repeatingPattern || alternatingPattern) {
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ DATA CORRUPTION DETECTED!`
+              `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ DATA CORRUPTION DETECTED!`,
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: Configured: ${this.baudrate} baud, but receiving corrupted data`
+              `[RS485 ERROR @${timestamp}] ${this.port}: Configured: ${this.baudrate} baud, but receiving corrupted data`,
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(highBitRatio * 100).toFixed(1)}% (should be < 10%)`
+              `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(highBitRatio * 100).toFixed(1)}% (should be < 10%)`,
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted hex: ${hex.substring(0, 40)}${hex.length > 40 ? '...' : ''}`
+              `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted hex: ${hex.substring(0, 40)}${hex.length > 40 ? "..." : ""}`,
             );
             console.error(
-              `[RS485 ERROR @${timestamp}] ${this.port}: ASCII preview: ${ascii.substring(0, 40)}${ascii.length > 40 ? '...' : ''}`
+              `[RS485 ERROR @${timestamp}] ${this.port}: ASCII preview: ${ascii.substring(0, 40)}${ascii.length > 40 ? "..." : ""}`,
             );
-            
+
             // Check if it starts with ERR (firmware is responding but data is corrupted)
             if (ascii.toUpperCase().startsWith("ERR")) {
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ Firmware IS responding (starts with ERR), but data is corrupted during RS485 transmission`
+                `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ Firmware IS responding (starts with ERR), but data is corrupted during RS485 transmission`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: This indicates a HARDWARE issue with Node B's RS485 transceiver or wiring`
+                `[RS485 ERROR @${timestamp}] ${this.port}: This indicates a HARDWARE issue with Node B's RS485 transceiver or wiring`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: Troubleshooting steps:`
+                `[RS485 ERROR @${timestamp}] ${this.port}: Troubleshooting steps:`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   1. Check RS485 transceiver power (VCC→5V, GND→GND) on Node B Arduino`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   1. Check RS485 transceiver power (VCC→5V, GND→GND) on Node B Arduino`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   2. Verify RS485 wiring (A+/B- lines, GND) for Node B`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   2. Verify RS485 wiring (A+/B- lines, GND) for Node B`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   3. Check termination resistors (120Ω at each end of RS485 bus)`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   3. Check termination resistors (120Ω at each end of RS485 bus)`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   4. Verify DE/RE pins on Node B's MAX485 are connected to Arduino D2/D3`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   4. Verify DE/RE pins on Node B's MAX485 are connected to Arduino D2/D3`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   5. Swap RS485 adapters between Node A and Node B to test if adapter is faulty`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   5. Swap RS485 adapters between Node A and Node B to test if adapter is faulty`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}:   6. Check if Node B Arduino Serial Monitor shows baud rate mismatch errors`
+                `[RS485 ERROR @${timestamp}] ${this.port}:   6. Check if Node B Arduino Serial Monitor shows baud rate mismatch errors`,
               );
             } else {
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 115200 baud for RS485 communication`
+                `[RS485 ERROR @${timestamp}] ${this.port}: Expected: 115200 baud for RS485 communication`,
               );
               console.error(
-                `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`
+                `[RS485 ERROR @${timestamp}] ${this.port}: Check: 1) RS485 adapter baud rate setting, 2) Wiring, 3) Termination resistors`,
               );
             }
             console.log(
-              `[RS485 INFO @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port} for diagnostics`
+              `[RS485 INFO @${timestamp}] ${this.port}: Run: node scripts/diagnose-baud-hex.js ${this.port} for diagnostics`,
             );
           }
         }
@@ -183,14 +185,14 @@ export class RS485Comm extends EventEmitter {
           cleanup();
           this.isOpen = true;
           console.log(
-            `[RS485] Port ${this.port} opened at ${this.baudrate} baud - ready to receive data`
+            `[RS485] Port ${this.port} opened at ${this.baudrate} baud - ready to receive data`,
           );
           console.log(
             `[RS485] Raw data listener registered: ${
               this.serialPort.listenerCount("data") > 0
             }, Parser listener registered: ${
               this.parser.listenerCount("data") > 0
-            }`
+            }`,
           );
           this.emit("open");
           resolve();
@@ -221,7 +223,7 @@ export class RS485Comm extends EventEmitter {
       // J-Link CDC port opening causes board reset - need longer delay
       console.log(`[RS485] Waiting 5 seconds for firmware initialization...`);
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      
+
       // Flush any garbage data in the buffer from the reset
       console.log(`[RS485] Flushing input buffer...`);
       await new Promise((resolve) => {
@@ -229,12 +231,14 @@ export class RS485Comm extends EventEmitter {
           // Read and discard any pending data
           const garbage = this.serialPort.read();
           if (garbage) {
-            console.log(`[RS485] Discarded ${garbage.length} bytes of startup garbage`);
+            console.log(
+              `[RS485] Discarded ${garbage.length} bytes of startup garbage`,
+            );
           }
           resolve();
         });
       });
-      
+
       // Small delay after flush
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
@@ -263,12 +267,16 @@ export class RS485Comm extends EventEmitter {
   async sendCommand(command, timeout = this.timeout) {
     // Auto-open port if not already open (allow sending commands without connection check)
     if (!this.isOpen) {
-      console.log(`[RS485] Port ${this.port} not open, attempting to open automatically...`);
+      console.log(
+        `[RS485] Port ${this.port} not open, attempting to open automatically...`,
+      );
       try {
         await this.open();
         console.log(`[RS485] Port ${this.port} opened successfully`);
       } catch (openError) {
-        console.warn(`[RS485] Failed to auto-open port ${this.port}: ${openError.message}, continuing anyway...`);
+        console.warn(
+          `[RS485] Failed to auto-open port ${this.port}: ${openError.message}, continuing anyway...`,
+        );
         // Continue anyway - let the command attempt to send
       }
     }
@@ -279,9 +287,10 @@ export class RS485Comm extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
-        
+
         // Provide helpful error message with troubleshooting steps
-        const errorMsg = `Command timeout: ${command}\n` +
+        const errorMsg =
+          `Command timeout: ${command}\n` +
           `  Port: ${this.port}\n` +
           `  Timeout: ${timeout}ms\n` +
           `  No response received from firmware.\n` +
@@ -311,7 +320,7 @@ export class RS485Comm extends EventEmitter {
           `     - Configure: 115200 baud, 8N1, no flow control (RS485 to Arduino)\n` +
           `     - Send "PNG\\r\\n" and check for "OK\\r\\n" response\n` +
           `     - Watch LEDs: orange on TX, green on RX`;
-        
+
         reject(new Error(errorMsg));
       }, timeout);
 
@@ -322,15 +331,15 @@ export class RS485Comm extends EventEmitter {
       console.log(
         `[RS485 TX] ${this.port}: ${command.trim()} (${
           commandStr.length
-        } bytes including \\r\\n)`
+        } bytes including \\r\\n)`,
       );
       console.log(
         `[RS485 TX] ${this.port}: Hex: ${Buffer.from(commandStr).toString(
-          "hex"
-        )}`
+          "hex",
+        )}`,
       );
 
-        // Write command
+      // Write command
       this.serialPort.write(commandStr, (writeError) => {
         if (writeError) {
           clearTimeout(timer);
@@ -351,7 +360,7 @@ export class RS485Comm extends EventEmitter {
 
           if (process.env.DEBUG_RS485) {
             console.log(
-              `[RS485 TX] ${this.port}: Data drained (sent to hardware)`
+              `[RS485 TX] ${this.port}: Data drained (sent to hardware)`,
             );
           }
 
@@ -374,13 +383,17 @@ export class RS485Comm extends EventEmitter {
     const bytes = data ? Array.from(Buffer.from(data)) : [];
     const highBitCount = bytes.filter((b) => b >= 0x80).length;
     const hasCorruption = bytes.length > 0 && highBitCount / bytes.length > 0.1;
-    
+
     // CAPTURE EVERYTHING - Log all incoming data for analysis
-    console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Processing response: "${data}" (len=${data?.length || 0})`);
-    
+    console.log(
+      `[RS485 HANDLE @${timestamp}] ${this.port}: Processing response: "${data}" (len=${data?.length || 0})`,
+    );
+
     // Skip empty lines
     if (!data || data.length === 0) {
-      console.log(`[RS485 HANDLE @${timestamp}] ${this.port}: Empty data, skipping`);
+      console.log(
+        `[RS485 HANDLE @${timestamp}] ${this.port}: Empty data, skipping`,
+      );
       return;
     }
 
@@ -395,7 +408,7 @@ export class RS485Comm extends EventEmitter {
       lower.includes("[uart_tx]") ||
       lower.includes("[dbg]") ||
       lower.includes("<dbg>") ||
-      lower.includes("[rx]") ||  // Filter [RX] byte=0xXX messages
+      lower.includes("[rx]") || // Filter [RX] byte=0xXX messages
       lower.includes("mpu:") ||
       lower.includes("os:") ||
       (lower.startsWith("[") &&
@@ -404,63 +417,82 @@ export class RS485Comm extends EventEmitter {
 
     if (isFiltered) {
       // Always log filtered messages to see what firmware is sending - CAPTURE EVERYTHING
-      console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filtered debug message: "${data}"`);
-      console.log(`[RS485 FILTERED @${Date.now()}] ${this.port}: Filter reason: contains debug markers`);
+      console.log(
+        `[RS485 FILTERED @${Date.now()}] ${this.port}: Filtered debug message: "${data}"`,
+      );
+      console.log(
+        `[RS485 FILTERED @${Date.now()}] ${this.port}: Filter reason: contains debug markers`,
+      );
       return;
     }
 
     // Check for corruption in the response data BEFORE attempting to fix it
     const responseBytes = Array.from(Buffer.from(data));
     const responseHighBitCount = responseBytes.filter((b) => b >= 0x80).length;
-    const responseHighBitRatio = responseBytes.length > 0 ? responseHighBitCount / responseBytes.length : 0;
-    
+    const responseHighBitRatio =
+      responseBytes.length > 0
+        ? responseHighBitCount / responseBytes.length
+        : 0;
+
     // If corruption is detected, log it but still try to process
     if (responseHighBitRatio > 0.1) {
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ CORRUPTED RESPONSE DETECTED in handleResponse`
+        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ CORRUPTED RESPONSE DETECTED in handleResponse`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}%`
+        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}%`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`
+        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`
+        `[RS485 ERROR @${timestamp}] ${this.port}: Hex: ${Buffer.from(data).toString("hex")}`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: This response will likely fail to match any command`
+        `[RS485 ERROR @${timestamp}] ${this.port}: This response will likely fail to match any command`,
       );
     }
-    
+
     // Handle responses that might have been corrupted but are still recognizable
     // Try to fix common corruption patterns before matching
     let cleanedData = data;
     let wasFixed = false;
-    
+
     // Fix common corruption patterns for ERR responses:
     // - "RS" or "RR" might be corrupted "ERR" (missing first byte or byte corruption)
     // - "UNKNOWN_AMD" or "UNKNOWN_CND" might be "UNKNOWN_CMD" corrupted
-    if ((data.startsWith("RS ") || data.startsWith("RR ")) && data.includes("UNKNOWN")) {
+    if (
+      (data.startsWith("RS ") || data.startsWith("RR ")) &&
+      data.includes("UNKNOWN")
+    ) {
       cleanedData = "ERR" + data.substring(2); // Replace "RS" or "RR" with "ERR"
       wasFixed = true;
       // Fix various corrupted "UNKNOWN_CMD" patterns
       cleanedData = cleanedData.replace(/UNKNOWN_[A-Z]{3}/, "UNKNOWN_CMD");
-      console.log(`[RS485 FIX] ${this.port}: Fixed corrupted ERR response: "${data}" -> "${cleanedData}"`);
+      console.log(
+        `[RS485 FIX] ${this.port}: Fixed corrupted ERR response: "${data}" -> "${cleanedData}"`,
+      );
     }
-    
+
     // Fix corruption where "OK" becomes "UOKN", "UOK", "RR UOKN", etc.
     // Pattern: "RR UOKN" or "UOKN" might be corrupted "OK" response
-    if (data.includes("UOKN") || data.includes("UOK") || (data.startsWith("RR ") && data.includes("OK"))) {
+    if (
+      data.includes("UOKN") ||
+      data.includes("UOK") ||
+      (data.startsWith("RR ") && data.includes("OK"))
+    ) {
       // Try to extract the "OK" part
       const okMatch = data.match(/U?OK[N]?/i);
       if (okMatch) {
-        cleanedData = "OK" + data.substring(okMatch[0].length).replace(/^[^A-Z]*/, "");
+        cleanedData =
+          "OK" + data.substring(okMatch[0].length).replace(/^[^A-Z]*/, "");
         wasFixed = true;
-        console.log(`[RS485 FIX] ${this.port}: Fixed corrupted OK response: "${data}" -> "${cleanedData}"`);
+        console.log(
+          `[RS485 FIX] ${this.port}: Fixed corrupted OK response: "${data}" -> "${cleanedData}"`,
+        );
       }
     }
-    
+
     // Fix single character responses that might be corrupted (like "K" which might be part of "OK")
     if (data.length === 1 && data.toUpperCase() === "K") {
       // "K" might be the last character of "OK" that got split
@@ -468,85 +500,90 @@ export class RS485Comm extends EventEmitter {
       if (this.pendingCommands.size > 0) {
         cleanedData = "OK";
         wasFixed = true;
-        console.log(`[RS485 FIX] ${this.port}: Fixed single character "K" -> "OK": "${data}" -> "${cleanedData}"`);
+        console.log(
+          `[RS485 FIX] ${this.port}: Fixed single character "K" -> "OK": "${data}" -> "${cleanedData}"`,
+        );
       }
     }
-    
+
     // Special handling for RS485 bridge error messages
     // These arrive when the bridge can't get a response from the DWM3001C
-    if (cleanedData.includes("ERR_DWM_NO_RESPONSE") || cleanedData.includes("DWM_NO_RESPONSE")) {
+    if (
+      cleanedData.includes("ERR_DWM_NO_RESPONSE") ||
+      cleanedData.includes("DWM_NO_RESPONSE")
+    ) {
       // This is a bridge-level error, not a firmware response
       // Try to match it to a pending command if available
       const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
-        ([id1], [id2]) => id1 - id2
+        ([id1], [id2]) => id1 - id2,
       );
-      
+
       if (sortedCommands.length > 0) {
         const [id, pending] = sortedCommands[0];
         clearTimeout(pending.timer);
         this.pendingCommands.delete(id);
-        
+
         console.log(
-          `[RS485 ERROR] ${this.port}: Command "${pending.command}" → Bridge error: DWM3001C not responding`
+          `[RS485 ERROR] ${this.port}: Command "${pending.command}" → Bridge error: DWM3001C not responding`,
         );
         console.log(
-          `[RS485 ERROR] ${this.port}: This indicates the DWM3001C firmware may not be running or there's a baud rate mismatch between the RS485 bridge and DWM3001C`
+          `[RS485 ERROR] ${this.port}: This indicates the DWM3001C firmware may not be running or there's a baud rate mismatch between the RS485 bridge and DWM3001C`,
         );
         console.log(
-          `[RS485 ERROR] ${this.port}: Check: 1) DWM3001C power, 2) Bridge→DWM wiring, 3) DWM firmware running, 4) Bridge baud rate (should be 57600 to DWM)`
+          `[RS485 ERROR] ${this.port}: Check: 1) DWM3001C power, 2) Bridge→DWM wiring, 3) DWM firmware running, 4) Bridge baud rate (should be 57600 to DWM)`,
         );
-        
+
         pending.reject(new Error(`DWM3001C not responding: ${cleanedData}`));
         return;
       } else {
         // No pending command, but log it anyway
         console.log(
-          `[RS485 WARNING] ${this.port}: Received ERR_DWM_NO_RESPONSE with no pending command (late response)`
+          `[RS485 WARNING] ${this.port}: Received ERR_DWM_NO_RESPONSE with no pending command (late response)`,
         );
         return;
       }
     }
-    
+
     // Check if response is too corrupted to be useful
     // If high-bit ratio is > 30%, reject it entirely (too corrupted to fix)
     if (responseHighBitRatio > 0.3) {
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ REJECTING HIGHLY CORRUPTED RESPONSE`
+        `[RS485 ERROR @${timestamp}] ${this.port}: ⚠️ REJECTING HIGHLY CORRUPTED RESPONSE`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}% (threshold: 30%)`
+        `[RS485 ERROR @${timestamp}] ${this.port}: High-bit ratio: ${(responseHighBitRatio * 100).toFixed(1)}% (threshold: 30%)`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`
+        `[RS485 ERROR @${timestamp}] ${this.port}: Corrupted data: "${data}"`,
       );
       console.error(
-        `[RS485 ERROR @${timestamp}] ${this.port}: This response is too corrupted to process`
+        `[RS485 ERROR @${timestamp}] ${this.port}: This response is too corrupted to process`,
       );
-      
+
       // Try to match it to a pending command and reject with corruption error
       const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
-        ([id1], [id2]) => id1 - id2
+        ([id1], [id2]) => id1 - id2,
       );
-      
+
       if (sortedCommands.length > 0) {
         const [id, pending] = sortedCommands[0];
         clearTimeout(pending.timer);
         this.pendingCommands.delete(id);
-        
+
         const corruptionError = new CorruptedResponseError(
           `Response corrupted (${(responseHighBitRatio * 100).toFixed(1)}% high-bit bytes): ${data}`,
           data,
-          responseHighBitRatio
+          responseHighBitRatio,
         );
         pending.reject(corruptionError);
         return;
       }
-      
+
       // No pending command, emit as unsolicited data
       this.emit("data", cleanedData);
       return;
     }
-    
+
     // Find matching pending command (FIFO - match oldest command first)
     // This ensures responses match commands in order, preventing race conditions
     if (
@@ -555,7 +592,7 @@ export class RS485Comm extends EventEmitter {
     ) {
       // Get all pending commands sorted by ID (oldest first)
       const sortedCommands = Array.from(this.pendingCommands.entries()).sort(
-        ([id1], [id2]) => id1 - id2
+        ([id1], [id2]) => id1 - id2,
       );
 
       // Match to oldest pending command (FIFO)
@@ -565,12 +602,12 @@ export class RS485Comm extends EventEmitter {
         this.pendingCommands.delete(id);
 
         // Log successful response match (green for OK responses)
-        const greenColor = '\x1b[32m';
-        const resetColor = '\x1b[0m';
+        const greenColor = "\x1b[32m";
+        const resetColor = "\x1b[0m";
         const isOkResponse = cleanedData.toUpperCase().startsWith("OK");
-        const colorCode = isOkResponse ? greenColor : '';
+        const colorCode = isOkResponse ? greenColor : "";
         console.log(
-          `${colorCode}[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}${resetColor}`
+          `${colorCode}[RS485 OK] ${this.port}: Command "${pending.command}" → Response: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}${resetColor}`,
         );
 
         // Check for corruption in the response (even if it's OK or ERR)
@@ -579,7 +616,7 @@ export class RS485Comm extends EventEmitter {
           const corruptionError = new CorruptedResponseError(
             `Response corrupted (${(responseHighBitRatio * 100).toFixed(1)}% high-bit bytes): ${cleanedData}`,
             data,
-            responseHighBitRatio
+            responseHighBitRatio,
           );
           pending.reject(corruptionError);
           return;
@@ -596,17 +633,17 @@ export class RS485Comm extends EventEmitter {
         // Response arrived but no pending command - might be a late response
         // Store it for a short time in case a command is sent soon
         console.log(
-          `[RS485 WARNING] ${this.port}: Received OK/ERR response with no pending command: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`
+          `[RS485 WARNING] ${this.port}: Received OK/ERR response with no pending command: ${cleanedData}${data !== cleanedData ? ` (fixed from: ${data})` : ""}`,
         );
         console.log(
-          `[RS485 INFO] ${this.port}: This might be a late response from a previous command that timed out`
+          `[RS485 INFO] ${this.port}: This might be a late response from a previous command that timed out`,
         );
       }
     }
 
     // If no matching command, emit as unsolicited data
     console.log(
-      `[RS485 WARNING] ${this.port}: Received data that doesn't match OK/ERR format or has no pending command: ${cleanedData}${data !== cleanedData ? ` (original: ${data})` : ""}`
+      `[RS485 WARNING] ${this.port}: Received data that doesn't match OK/ERR format or has no pending command: ${cleanedData}${data !== cleanedData ? ` (original: ${data})` : ""}`,
     );
     this.emit("data", cleanedData);
   }
@@ -640,7 +677,9 @@ export class RS485Comm extends EventEmitter {
     // Format: SET_CONFIG ch=5 rate=6m8 pl=128 len=64 pwr=5 rate_hz=100
     // Use short code "CFG" for better reliability with long commands
     // Firmware supports both "CFG" (short) and "SET_CONFIG" (full)
-    console.log(`[RS485] setConfig() called for port ${this.port} (isOpen: ${this.isOpen})`);
+    console.log(
+      `[RS485] setConfig() called for port ${this.port} (isOpen: ${this.isOpen})`,
+    );
     const params = [];
     if (config.channel !== undefined) params.push(`ch=${config.channel}`);
     if (config.data_rate !== undefined) {
@@ -663,8 +702,16 @@ export class RS485Comm extends EventEmitter {
       params.push(`pl=${config.preamble_len}`);
     if (config.payload_len !== undefined)
       params.push(`len=${config.payload_len}`);
-    if (config.tx_power_idx !== undefined)
-      params.push(`pwr=${config.tx_power_idx}`);
+    // Note: RX firmware doesn't support boost= or pwr_ref= parameters
+    // TX firmware supports them, but we'll skip them for compatibility
+    // Default values are used from firmware defaults (boost=0, pwr_ref=0x36363636)
+    // Only send boost/pwr_ref if explicitly requested (for TX-only configurations)
+    if (config.boost !== undefined) {
+      params.push(`boost=${config.boost}`);
+    }
+    if (config.pwr_ref !== undefined) {
+      params.push(`pwr_ref=${config.pwr_ref}`);
+    }
     if (config.pkt_rate_hz !== undefined)
       params.push(`rate_hz=${config.pkt_rate_hz}`);
 
@@ -672,8 +719,10 @@ export class RS485Comm extends EventEmitter {
     const command = `CFG ${params.join(" ")}`;
     console.log(`[RS485] Sending CFG command to port ${this.port}: ${command}`);
 
-    // Use longer timeout for SET_CONFIG commands (firmware waits up to 2 seconds for incomplete commands)
-    const configTimeout = timeout || 10000; // Default 10 seconds, but allow override
+    // Use longer timeout for SET_CONFIG commands
+    // dwt_configure() and configure_tx_power() can take several seconds to complete
+    // Default 20 seconds should be enough for configuration to complete
+    const configTimeout = timeout || 20000; // Default 20 seconds, but allow override
     const response = await this.sendCommand(command, configTimeout);
 
     return response;
@@ -686,7 +735,9 @@ export class RS485Comm extends EventEmitter {
    */
   async startTest(timeout = null) {
     // Firmware supports both "STRT" (short) and "START_TEST" (full)
-    console.log(`[RS485] Sending START command to port ${this.port} (isOpen: ${this.isOpen})`);
+    console.log(
+      `[RS485] Sending START command to port ${this.port} (isOpen: ${this.isOpen})`,
+    );
     return this.sendCommand("STRT", timeout || this.timeout);
   }
 

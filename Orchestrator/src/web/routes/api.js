@@ -1,4 +1,4 @@
-import express from 'express';
+import express from "express";
 
 /**
  * API Routes
@@ -33,7 +33,7 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *                     connected: { type: boolean }
    *                 testRunning: { type: boolean }
    */
-  router.get('/status', (req, res) => {
+  router.get("/status", (req, res) => {
     res.json({
       nodeA: {
         state: nodeA.getState(),
@@ -66,7 +66,7 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *                 nodeA: { type: object }
    *                 nodeB: { type: object }
    */
-  router.get('/stats', async (req, res) => {
+  router.get("/stats", async (req, res) => {
     try {
       const statsA = nodeA.getStatsSync();
       const statsB = nodeB.getStatsSync();
@@ -100,7 +100,7 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Historical data
    */
-  router.get('/history', async (req, res) => {
+  router.get("/history", async (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 100;
@@ -137,7 +137,7 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Test plan
    */
-  router.get('/test-plan', (req, res) => {
+  router.get("/test-plan", (req, res) => {
     try {
       const testPlan = config.getTestPlan();
       res.json({ tests: testPlan });
@@ -163,22 +163,22 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Test started
    */
-  router.post('/test/start', async (req, res) => {
+  router.post("/test/start", async (req, res) => {
     try {
       const { test } = req.body;
       if (!test) {
-        return res.status(400).json({ error: 'Test configuration required' });
+        return res.status(400).json({ error: "Test configuration required" });
       }
-      
+
       // Start test asynchronously (don't await - let it run in background)
       // This allows the API to return immediately while the test runs
       testRunner.runTest(test).catch((error) => {
-        console.error('Test execution error:', error);
+        console.error("Test execution error:", error);
         // Error is already emitted via testRunner events, which Socket.io will broadcast
       });
-      
+
       // Return immediately - test is running in background
-      res.json({ message: 'Test started' });
+      res.json({ message: "Test started" });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -194,10 +194,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Test stopped
    */
-  router.post('/test/stop', async (req, res) => {
+  router.post("/test/stop", async (req, res) => {
     try {
       await testRunner.stopTest();
-      res.json({ message: 'Test stopped' });
+      res.json({ message: "Test stopped" });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -213,16 +213,22 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Connection results
    */
-  router.post('/nodes/connect', async (req, res) => {
+  router.post("/nodes/connect", async (req, res) => {
     try {
       const results = await Promise.allSettled([
         nodeA.connect(),
-        nodeB.connect()
+        nodeB.connect(),
       ]);
 
       res.json({
-        nodeA: results[0].status === 'fulfilled' ? 'connected' : `error: ${results[0].reason.message}`,
-        nodeB: results[1].status === 'fulfilled' ? 'connected' : `error: ${results[1].reason.message}`,
+        nodeA:
+          results[0].status === "fulfilled"
+            ? "connected"
+            : `error: ${results[0].reason.message}`,
+        nodeB:
+          results[1].status === "fulfilled"
+            ? "connected"
+            : `error: ${results[1].reason.message}`,
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -239,13 +245,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Disconnected
    */
-  router.post('/nodes/disconnect', async (req, res) => {
+  router.post("/nodes/disconnect", async (req, res) => {
     try {
-      await Promise.allSettled([
-        nodeA.disconnect(),
-        nodeB.disconnect()
-      ]);
-      res.json({ message: 'Nodes disconnected' });
+      await Promise.allSettled([nodeA.disconnect(), nodeB.disconnect()]);
+      res.json({ message: "Nodes disconnected" });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -266,9 +269,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Ping result
    */
-  router.post('/nodes/:nodeId/ping', async (req, res) => {
+  router.post("/nodes/:nodeId/ping", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const result = await node.ping();
       res.json({ success: result });
     } catch (error) {
@@ -300,14 +303,14 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Command response
    */
-  router.post('/nodes/:nodeId/send', async (req, res) => {
+  router.post("/nodes/:nodeId/send", async (req, res) => {
     try {
       const { command, timeout } = req.body;
       if (!command) {
-        return res.status(400).json({ error: 'Command required' });
+        return res.status(400).json({ error: "Command required" });
       }
 
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const response = await node.rs485Comm.sendCommand(command, timeout);
       res.json({ response });
     } catch (error) {
@@ -343,9 +346,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Configuration result
    */
-  router.post('/nodes/:nodeId/configure', async (req, res) => {
+  router.post("/nodes/:nodeId/configure", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const result = await node.configure(req.body);
       res.json({ success: result });
     } catch (error) {
@@ -368,9 +371,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Node statistics
    */
-  router.get('/nodes/:nodeId/stats', async (req, res) => {
+  router.get("/nodes/:nodeId/stats", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const stats = await node.getStats();
       res.json(stats);
     } catch (error) {
@@ -393,9 +396,30 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Node started
    */
-  router.post('/nodes/:nodeId/start', async (req, res) => {
+  router.post("/nodes/:nodeId/start", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+
+      // Check if node is configured before starting
+      if (node.getState() !== "CONFIGURED") {
+        // Try to configure with default settings if not configured
+        const defaultConfig = config.getTestConfig();
+        try {
+          await node.configure({
+            channel: defaultConfig.channel || 5,
+            data_rate: defaultConfig.data_rate || "6m8",
+            preamble_len: defaultConfig.preamble_len || 128,
+            payload_len: defaultConfig.payload_len || 64,
+            tx_power_idx: defaultConfig.tx_power_idx || 5,
+            pkt_rate_hz: defaultConfig.pkt_rate_hz || 100,
+          });
+        } catch (configError) {
+          return res.status(400).json({
+            error: `Node must be configured before starting. Configuration failed: ${configError.message}`,
+          });
+        }
+      }
+
       const result = await node.startTest();
       res.json({ success: result });
     } catch (error) {
@@ -418,9 +442,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Node stopped
    */
-  router.post('/nodes/:nodeId/stop', async (req, res) => {
+  router.post("/nodes/:nodeId/stop", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const result = await node.stopTest();
       res.json({ success: result });
     } catch (error) {
@@ -443,10 +467,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Configuration command sent
    */
-  router.post('/nodes/:nodeId/cfg', async (req, res) => {
+  router.post("/nodes/:nodeId/cfg", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
-      const response = await node.rs485Comm.sendCommand('CFG');
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand("CFG");
       res.json({ response });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -468,10 +492,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Node type command sent
    */
-  router.post('/nodes/:nodeId/node-type', async (req, res) => {
+  router.post("/nodes/:nodeId/node-type", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
-      const response = await node.rs485Comm.sendCommand('NODE_TYPE');
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand("NODE_TYPE");
       res.json({ response });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -493,10 +517,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Statistics reset
    */
-  router.post('/nodes/:nodeId/reset-stats', async (req, res) => {
+  router.post("/nodes/:nodeId/reset-stats", async (req, res) => {
     try {
-      const node = req.params.nodeId.toUpperCase() === 'A' ? nodeA : nodeB;
-      const response = await node.rs485Comm.sendCommand('RST');
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+      const response = await node.rs485Comm.sendCommand("RST");
       res.json({ response });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -513,28 +537,28 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *       200:
    *         description: Test report generated
    */
-  router.post('/test/report', async (req, res) => {
+  router.post("/test/report", async (req, res) => {
     try {
       // Get stats from both nodes
       const [statsA, statsB] = await Promise.allSettled([
         nodeA.getStats().catch(() => null),
-        nodeB.getStats().catch(() => null)
+        nodeB.getStats().catch(() => null),
       ]);
 
       const report = {
         timestamp: new Date().toISOString(),
         nodeA: {
-          stats: statsA.status === 'fulfilled' ? statsA.value : null,
+          stats: statsA.status === "fulfilled" ? statsA.value : null,
           state: nodeA.getState(),
           connected: nodeA.isConnected(),
-          lastError: nodeA.getLastError()
+          lastError: nodeA.getLastError(),
         },
         nodeB: {
-          stats: statsB.status === 'fulfilled' ? statsB.value : null,
+          stats: statsB.status === "fulfilled" ? statsB.value : null,
           state: nodeB.getState(),
           connected: nodeB.isConnected(),
-          lastError: nodeB.getLastError()
-        }
+          lastError: nodeB.getLastError(),
+        },
       };
 
       res.json(report);
@@ -545,4 +569,3 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
 
   return router;
 }
-

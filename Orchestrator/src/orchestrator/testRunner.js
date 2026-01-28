@@ -64,13 +64,9 @@ export class TestRunner extends EventEmitter {
       // Step 5: Start periodic polling
       this.startPolling(test);
 
-      // Step 6: Wait for test duration (or manual stop)
-      const testDuration =
-        this.config.getTestConfig().default_test_duration_seconds * 1000;
-      await this.sleep(testDuration);
-
-      // Step 7: Stop test
-      await this.stopTest();
+      // Step 6: Wait indefinitely until manually stopped
+      // Test will continue running until stopTest() is called
+      await this.waitUntilStopped();
     } catch (error) {
       this.emit("error", error);
       await this.stopTest();
@@ -89,17 +85,19 @@ export class TestRunner extends EventEmitter {
     // 2. Readline interface is not available (stdin not available)
     // 3. Not in interactive terminal
     if (this.skipPrompts || !this.rl || !process.stdin.isTTY) {
-      console.log(`Jammer should be set to: ${jammerLabel} (skipping prompt - web API mode)`);
+      console.log(
+        `Jammer should be set to: ${jammerLabel} (skipping prompt - web API mode)`,
+      );
       return Promise.resolve();
     }
-    
+
     return new Promise((resolve) => {
       this.rl.question(
         `\nSet jammer to: ${jammerLabel} and press ENTER to continue...\n`,
         () => {
           console.log(`Jammer set to: ${jammerLabel}`);
           resolve();
-        }
+        },
       );
     });
   }
@@ -115,39 +113,53 @@ export class TestRunner extends EventEmitter {
       console.log("\n" + "=".repeat(60));
       console.log("CONFIGURING BOTH NODES SIMULTANEOUSLY");
       console.log("=".repeat(60));
-      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
-      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
-      
-      const greenColor = '\x1b[32m';
-      const resetColor = '\x1b[0m';
+      console.log(
+        `Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`,
+      );
+      console.log(
+        `Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`,
+      );
+
+      const greenColor = "\x1b[32m";
+      const resetColor = "\x1b[0m";
       const [resultA, resultB] = await Promise.allSettled([
-        this.nodeA.configure(uwbConfig).then(() => {
-          console.log(`${greenColor}✓ Node A configured successfully${resetColor}`);
-          return "Node A";
-        }).catch((err) => {
-          console.error(`✗ Node A configuration failed: ${err.message}`);
-          throw err;
-        }),
-        this.nodeB.configure(uwbConfig).then(() => {
-          console.log(`${greenColor}✓ Node B configured successfully${resetColor}`);
-          return "Node B";
-        }).catch((err) => {
-          console.error(`✗ Node B configuration failed: ${err.message}`);
-          throw err;
-        })
+        this.nodeA
+          .configure(uwbConfig)
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node A configured successfully${resetColor}`,
+            );
+            return "Node A";
+          })
+          .catch((err) => {
+            console.error(`✗ Node A configuration failed: ${err.message}`);
+            throw err;
+          }),
+        this.nodeB
+          .configure(uwbConfig)
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node B configured successfully${resetColor}`,
+            );
+            return "Node B";
+          })
+          .catch((err) => {
+            console.error(`✗ Node B configuration failed: ${err.message}`);
+            throw err;
+          }),
       ]);
 
       // Check results
       const errors = [];
-      if (resultA.status === 'rejected') {
+      if (resultA.status === "rejected") {
         errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
       }
-      if (resultB.status === 'rejected') {
+      if (resultB.status === "rejected") {
         errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
       }
 
       if (errors.length > 0) {
-        const errorMsg = `Failed to configure nodes: ${errors.join('; ')}`;
+        const errorMsg = `Failed to configure nodes: ${errors.join("; ")}`;
         console.error(errorMsg);
         console.log("=".repeat(60) + "\n");
         throw new Error(errorMsg);
@@ -170,45 +182,59 @@ export class TestRunner extends EventEmitter {
     try {
       // Start both nodes simultaneously for synchronized UWB communication
       console.log("Starting both nodes simultaneously...");
-      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
-      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
-      
+      console.log(
+        `Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`,
+      );
+      console.log(
+        `Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`,
+      );
+
       console.log("\n" + "=".repeat(60));
       console.log("SENDING START COMMANDS TO BOTH NODES SIMULTANEOUSLY");
       console.log("=".repeat(60));
-      
-      const greenColor = '\x1b[32m';
-      const resetColor = '\x1b[0m';
+
+      const greenColor = "\x1b[32m";
+      const resetColor = "\x1b[0m";
       const [resultA, resultB] = await Promise.allSettled([
-        this.nodeA.startTest().then(() => {
-          console.log(`${greenColor}✓ Node A started successfully${resetColor}`);
-          return "Node A";
-        }).catch((err) => {
-          console.error(`✗ Node A start failed: ${err.message}`);
-          throw err;
-        }),
-        this.nodeB.startTest().then(() => {
-          console.log(`${greenColor}✓ Node B started successfully${resetColor}`);
-          return "Node B";
-        }).catch((err) => {
-          console.error(`✗ Node B start failed: ${err.message}`);
-          throw err;
-        })
+        this.nodeA
+          .startTest()
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node A started successfully${resetColor}`,
+            );
+            return "Node A";
+          })
+          .catch((err) => {
+            console.error(`✗ Node A start failed: ${err.message}`);
+            throw err;
+          }),
+        this.nodeB
+          .startTest()
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node B started successfully${resetColor}`,
+            );
+            return "Node B";
+          })
+          .catch((err) => {
+            console.error(`✗ Node B start failed: ${err.message}`);
+            throw err;
+          }),
       ]);
-      
+
       console.log("=".repeat(60) + "\n");
 
       // Check results
       const errors = [];
-      if (resultA.status === 'rejected') {
+      if (resultA.status === "rejected") {
         errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
       }
-      if (resultB.status === 'rejected') {
+      if (resultB.status === "rejected") {
         errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
       }
 
       if (errors.length > 0) {
-        const errorMsg = `Failed to start nodes: ${errors.join('; ')}`;
+        const errorMsg = `Failed to start nodes: ${errors.join("; ")}`;
         console.error(errorMsg);
         throw new Error(errorMsg);
       }
@@ -334,39 +360,53 @@ export class TestRunner extends EventEmitter {
     try {
       // Stop both nodes simultaneously
       console.log("Stopping both nodes simultaneously...");
-      console.log(`Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`);
-      console.log(`Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`);
-      
-      const greenColor = '\x1b[32m';
-      const resetColor = '\x1b[0m';
+      console.log(
+        `Node A state: ${this.nodeA.getState()}, connected: ${this.nodeA.isConnected()}`,
+      );
+      console.log(
+        `Node B state: ${this.nodeB.getState()}, connected: ${this.nodeB.isConnected()}`,
+      );
+
+      const greenColor = "\x1b[32m";
+      const resetColor = "\x1b[0m";
       const [resultA, resultB] = await Promise.allSettled([
-        this.nodeA.stopTest().then(() => {
-          console.log(`${greenColor}✓ Node A stopped successfully${resetColor}`);
-          return "Node A";
-        }).catch((err) => {
-          console.error(`✗ Node A stop failed: ${err.message}`);
-          throw err;
-        }),
-        this.nodeB.stopTest().then(() => {
-          console.log(`${greenColor}✓ Node B stopped successfully${resetColor}`);
-          return "Node B";
-        }).catch((err) => {
-          console.error(`✗ Node B stop failed: ${err.message}`);
-          throw err;
-        })
+        this.nodeA
+          .stopTest()
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node A stopped successfully${resetColor}`,
+            );
+            return "Node A";
+          })
+          .catch((err) => {
+            console.error(`✗ Node A stop failed: ${err.message}`);
+            throw err;
+          }),
+        this.nodeB
+          .stopTest()
+          .then(() => {
+            console.log(
+              `${greenColor}✓ Node B stopped successfully${resetColor}`,
+            );
+            return "Node B";
+          })
+          .catch((err) => {
+            console.error(`✗ Node B stop failed: ${err.message}`);
+            throw err;
+          }),
       ]);
 
       // Check results
       const errors = [];
-      if (resultA.status === 'rejected') {
+      if (resultA.status === "rejected") {
         errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
       }
-      if (resultB.status === 'rejected') {
+      if (resultB.status === "rejected") {
         errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
       }
 
       if (errors.length > 0) {
-        console.warn(`Some nodes failed to stop: ${errors.join('; ')}`);
+        console.warn(`Some nodes failed to stop: ${errors.join("; ")}`);
         // Don't throw - we still want to emit stopped event
       }
 
@@ -386,14 +426,16 @@ export class TestRunner extends EventEmitter {
     for (let i = 0; i < tests.length; i++) {
       const test = tests[i];
       console.log(
-        `\n=== Running test ${i + 1}/${tests.length}: ${test.run_name} ===`
+        `\n=== Running test ${i + 1}/${tests.length}: ${test.run_name} ===`,
       );
 
       try {
         await this.runTest(test);
-        const greenColor = '\x1b[32m';
-        const resetColor = '\x1b[0m';
-        console.log(`${greenColor}Test ${test.run_name} completed successfully${resetColor}`);
+        const greenColor = "\x1b[32m";
+        const resetColor = "\x1b[0m";
+        console.log(
+          `${greenColor}Test ${test.run_name} completed successfully${resetColor}`,
+        );
       } catch (error) {
         console.error(`Test ${test.run_name} failed:`, error.message);
         this.emit("testFailed", { test, error });
@@ -405,6 +447,28 @@ export class TestRunner extends EventEmitter {
         await this.sleep(5000);
       }
     }
+  }
+
+  /**
+   * Wait until test is stopped (manually)
+   * Resolves when isRunning becomes false
+   */
+  async waitUntilStopped() {
+    return new Promise((resolve) => {
+      // Check if already stopped
+      if (!this.isRunning) {
+        resolve();
+        return;
+      }
+
+      // Poll every 100ms to check if test was stopped
+      const checkInterval = setInterval(() => {
+        if (!this.isRunning) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+    });
   }
 
   /**

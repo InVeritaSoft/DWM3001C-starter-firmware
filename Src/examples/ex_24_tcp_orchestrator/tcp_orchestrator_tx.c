@@ -679,9 +679,12 @@ static void parse_set_config(char *params)
         else if (g_config.preamble_len == 512) dwt_config.txPreambLength = DWT_PLEN_512;
         else if (g_config.preamble_len == 1024) dwt_config.txPreambLength = DWT_PLEN_1024;
         
+        // Send response immediately after parsing (before configure_uwb which can take time)
+        send_response("OK CONFIG");
+        
+        // Then perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
-        send_response("OK CONFIG");
         return;
     }
     
@@ -756,9 +759,12 @@ static void parse_set_config(char *params)
 
     if (config_valid)
     {
+        // Send response immediately after parsing (before configure_uwb which can take time)
+        send_response("OK CONFIG");
+        
+        // Then perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
-        send_response("OK CONFIG");
     }
     else
     {

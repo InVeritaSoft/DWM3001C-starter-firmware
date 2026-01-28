@@ -1,0 +1,10 @@
+{
+  "watch": ["src"],
+  "ext": "js,json,yaml",
+  "ignore": ["node_modules", "*.log", "*.csv", "frontend", "python_backend"],
+  "exec": "node",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": "1000"
+}

@@ -37,7 +37,7 @@ export class NodeController extends EventEmitter {
         // Log error if no listeners (prevents uncaught exception)
         console.error(
           `[NodeController ${this.nodeId}] Unhandled error:`,
-          error.message
+          error.message,
         );
       }
     });
@@ -115,24 +115,32 @@ export class NodeController extends EventEmitter {
   async ping() {
     try {
       // Use longer timeout for Node B (which is less reliable)
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
-      
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
+
       const response = await this.rs485Comm.sendCommand("PNG", timeout);
-      
+
       return response.startsWith("OK");
     } catch (error) {
       this.lastError = error.message;
-      console.error(`⚠️  ${this.nodeId} PING failed - firmware may not be responding`);
-      console.error(`   Error: ${error.message.split('\n')[0]}`);
-      if (error.message.includes('timeout')) {
+      console.error(
+        `⚠️  ${this.nodeId} PING failed - firmware may not be responding`,
+      );
+      console.error(`   Error: ${error.message.split("\n")[0]}`);
+      if (error.message.includes("timeout")) {
         console.error(`   No response received. Check:`);
         console.error(`   1. Firmware is running orchestrator example`);
         console.error(`   2. RS-485 hardware connection`);
         console.error(`   3. Serial port ${this.rs485Comm.port} is correct`);
-        console.error(`   4. Baud rate: Should be 115200 for RS485 communication (orchestrator to Arduino bridge)`);
-        console.error(`   5. If you see corrupted data (high-bit bytes), check baud rate mismatch`);
-        if (this.nodeId === 'B') {
-          console.error(`   6. Node B is less reliable - check RS-485 wiring and termination`);
+        console.error(
+          `   4. Baud rate: Should be 115200 for RS485 communication (orchestrator to Arduino bridge)`,
+        );
+        console.error(
+          `   5. If you see corrupted data (high-bit bytes), check baud rate mismatch`,
+        );
+        if (this.nodeId === "B") {
+          console.error(
+            `   6. Node B is less reliable - check RS-485 wiring and termination`,
+          );
         }
       }
       return false;
@@ -146,7 +154,7 @@ export class NodeController extends EventEmitter {
   async getFirmwareNodeType() {
     try {
       // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
       const response = await this.rs485Comm.getNodeType(timeout);
       if (response && response.startsWith("OK NODE_TYPE=")) {
         const type = response.split("=")[1];
@@ -167,36 +175,47 @@ export class NodeController extends EventEmitter {
    */
   async configure(config) {
     try {
-      console.log(`[NodeController ${this.nodeId}] configure() called - state: ${this.state}, connected: ${this.isConnected()}`);
-      
+      console.log(
+        `[NodeController ${this.nodeId}] configure() called - state: ${this.state}, connected: ${this.isConnected()}`,
+      );
+
       if (this.state === NodeState.RUNNING) {
         throw new Error("Cannot configure while test is running");
       }
 
       // Try to open connection if not already open
       if (!this.isConnected()) {
-        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        console.log(
+          `[NodeController ${this.nodeId}] Port not open, attempting to open...`,
+        );
         try {
           await this.connect();
         } catch (connectError) {
-          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+          console.warn(
+            `[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`,
+          );
         }
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending configuration...`);
-      // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 15000 : 10000;
+      // Configuration can take time - dwt_configure() and configure_tx_power() may take several seconds
+      // Use longer timeout for configuration commands (20 seconds should be enough)
+      const timeout = this.nodeId === "B" ? 20000 : 20000;
       const response = await this.rs485Comm.setConfig(config, timeout);
-      console.log(`[NodeController ${this.nodeId}] Configuration response: ${response}`);
-      
+      console.log(
+        `[NodeController ${this.nodeId}] Configuration response: ${response}`,
+      );
+
       // Firmware responds with "OK CONFIG" (not "OK CONFIG_SET")
       if (response.startsWith("OK CONFIG")) {
         this.config = { ...config };
         this.setState(NodeState.CONFIGURED);
         this.emit("configured", config);
-        const greenColor = '\x1b[32m';
-        const resetColor = '\x1b[0m';
-        console.log(`${greenColor}[NodeController ${this.nodeId}] ✓ Configuration successful${resetColor}`);
+        const greenColor = "\x1b[32m";
+        const resetColor = "\x1b[0m";
+        console.log(
+          `${greenColor}[NodeController ${this.nodeId}] ✓ Configuration successful${resetColor}`,
+        );
         return true;
       } else {
         const errorMsg = `Configuration failed: ${response}`;
@@ -204,7 +223,9 @@ export class NodeController extends EventEmitter {
         throw new Error(errorMsg);
       }
     } catch (error) {
-      console.error(`[NodeController ${this.nodeId}] configure() error: ${error.message}`);
+      console.error(
+        `[NodeController ${this.nodeId}] configure() error: ${error.message}`,
+      );
       this.setState(NodeState.ERROR);
       this.lastError = error.message;
       this.emit("error", error);
@@ -218,31 +239,41 @@ export class NodeController extends EventEmitter {
    */
   async startTest() {
     try {
-      console.log(`[NodeController ${this.nodeId}] startTest() called - state: ${this.state}, connected: ${this.isConnected()}`);
-      
+      console.log(
+        `[NodeController ${this.nodeId}] startTest() called - state: ${this.state}, connected: ${this.isConnected()}`,
+      );
+
       // Try to open connection if not already open
       if (!this.isConnected()) {
-        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        console.log(
+          `[NodeController ${this.nodeId}] Port not open, attempting to open...`,
+        );
         try {
           await this.connect();
         } catch (connectError) {
-          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+          console.warn(
+            `[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`,
+          );
         }
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending START command...`);
       // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
       const response = await this.rs485Comm.startTest(timeout);
-      console.log(`[NodeController ${this.nodeId}] START response: ${response}`);
-      
+      console.log(
+        `[NodeController ${this.nodeId}] START response: ${response}`,
+      );
+
       // Firmware responds with "OK START" (not "OK TEST_STARTED")
       if (response.startsWith("OK START")) {
         this.setState(NodeState.RUNNING);
         this.emit("testStarted");
-        const greenColor = '\x1b[32m';
-        const resetColor = '\x1b[0m';
-        console.log(`${greenColor}[NodeController ${this.nodeId}] ✓ Test started successfully${resetColor}`);
+        const greenColor = "\x1b[32m";
+        const resetColor = "\x1b[0m";
+        console.log(
+          `${greenColor}[NodeController ${this.nodeId}] ✓ Test started successfully${resetColor}`,
+        );
         return true;
       } else {
         const errorMsg = `Start test failed: ${response}`;
@@ -250,7 +281,9 @@ export class NodeController extends EventEmitter {
         throw new Error(errorMsg);
       }
     } catch (error) {
-      console.error(`[NodeController ${this.nodeId}] startTest() error: ${error.message}`);
+      console.error(
+        `[NodeController ${this.nodeId}] startTest() error: ${error.message}`,
+      );
       this.setState(NodeState.ERROR);
       this.lastError = error.message;
       this.emit("error", error);
@@ -266,16 +299,20 @@ export class NodeController extends EventEmitter {
     try {
       // Try to open connection if not already open
       if (!this.isConnected()) {
-        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        console.log(
+          `[NodeController ${this.nodeId}] Port not open, attempting to open...`,
+        );
         try {
           await this.connect();
         } catch (connectError) {
-          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+          console.warn(
+            `[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`,
+          );
         }
       }
 
       // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
       const response = await this.rs485Comm.stopTest(timeout);
       if (response.startsWith("OK STOP")) {
         this.setState(NodeState.STOPPED);
@@ -300,16 +337,20 @@ export class NodeController extends EventEmitter {
     try {
       // Try to open connection if not already open
       if (!this.isConnected()) {
-        console.log(`[NodeController ${this.nodeId}] Port not open, attempting to open...`);
+        console.log(
+          `[NodeController ${this.nodeId}] Port not open, attempting to open...`,
+        );
         try {
           await this.connect();
         } catch (connectError) {
-          console.warn(`[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`);
+          console.warn(
+            `[NodeController ${this.nodeId}] Failed to open connection: ${connectError.message}, continuing anyway...`,
+          );
         }
       }
 
       // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
       const response = await this.rs485Comm.getStats(timeout);
       if (response.startsWith("OK STATS")) {
         this.stats = this.parseStats(response);
@@ -361,7 +402,10 @@ export class NodeController extends EventEmitter {
     if (stats.last_err !== undefined && stats.last_error === undefined) {
       stats.last_error = stats.last_err;
     }
-    if (stats.frame_dur !== undefined && stats.frame_duration_us === undefined) {
+    if (
+      stats.frame_dur !== undefined &&
+      stats.frame_duration_us === undefined
+    ) {
       stats.frame_duration_us = stats.frame_dur;
     }
 
@@ -385,7 +429,7 @@ export class NodeController extends EventEmitter {
     // If we get total_sent instead of total_rx, it means wrong firmware type
     if (stats.total_sent !== undefined && stats.total_rx === undefined) {
       console.warn(
-        `[NodeController] Node B returned total_sent instead of total_rx - firmware may be built as Node A type!`
+        `[NodeController] Node B returned total_sent instead of total_rx - firmware may be built as Node A type!`,
       );
       console.warn(`[NodeController] Response was: ${response}`);
       // Return zeros for RX stats since we can't parse TX stats as RX stats
@@ -427,7 +471,7 @@ export class NodeController extends EventEmitter {
   async resetStats() {
     try {
       // Node B needs longer timeout
-      const timeout = this.nodeId === 'B' ? 8000 : 5000;
+      const timeout = this.nodeId === "B" ? 8000 : 5000;
       const response = await this.rs485Comm.resetStats(timeout);
       if (response.startsWith("OK")) {
         this.stats = null;

@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node src/orchestrator/main.js",
-    "dev": "node --watch src/orchestrator/main.js",
+    "dev": "nodemon src/orchestrator/main.js",
     "web": "node src/web/server.js",
+    "web:dev": "nodemon src/web/server.js",
+    "dev:web": "nodemon src/web/server.js",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",
     "start:win": "node src/orchestrator/main.js",
@@ -16,7 +18,7 @@
     "dev:windows": "cmd /c start-windows-dev.bat",
     "web:windows": "cmd /c start-windows-web.bat",
     "list-ports": "node scripts/list-ports.js",
-    "test-ping": "node scripts/test-ping.js",
+    "test-ping": "node scripts/test-ping-simple.js",
     "diagnose-uart": "node scripts/diagnose-uart.js",
     "diagnose-complete": "node scripts/diagnose-complete.js",
     "verify-flash": "node scripts/verify-flash.js",
@@ -29,7 +31,6 @@
     "check-rs485": "node scripts/check-rs485-hardware.js",
     "diagnose-signal": "node scripts/diagnose-signal-reception.js",
     "check-node-a": "node scripts/check-node-a-status.js",
-    "test-ping": "node scripts/test-ping-simple.js",
     "start-uwb": "node scripts/start-uwb-node-a.js",
     "check-uwb": "node scripts/check-uwb-status.js",
     "test-leds": "node scripts/test-led-communication.js"
@@ -43,15 +44,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.6.1",
-    "serialport": "^12.0.0",
-    "csv-writer": "^1.6.0",
+    "cors": "^2.8.5",
     "csv-parser": "^3.0.0",
+    "csv-writer": "^1.6.0",
+    "express": "^4.18.2",
     "js-yaml": "^4.1.0",
+    "serialport": "^12.0.0",
+    "socket.io": "^4.6.1",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.0",
-    "cors": "^2.8.5"
+    "swagger-ui-express": "^5.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }
-

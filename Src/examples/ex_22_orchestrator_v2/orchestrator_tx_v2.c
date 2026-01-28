@@ -661,9 +661,13 @@ static void parse_set_config(char *params)
 
     if (config_valid)
     {
+        // Send response immediately after parsing (before configure_uwb which can take time)
+        // This ensures the orchestrator knows the command was received and parsed correctly
+        send_response("OK CONFIG");
+        
+        // Then perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
-        send_response("OK CONFIG");
     }
     else
     {
