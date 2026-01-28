@@ -923,11 +923,33 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
+        // Send response immediately to prevent timeout
+        send_response("OK STOP");
+        
+        // Stop test running flag first to prevent timer handler from starting new TX
         g_test_running = 0;
+        
+        // Stop timers (ignore errors - timers might not be running)
         app_timer_stop(m_tx_timer_id);
         app_timer_stop(m_ack_timeout_timer_id);
+        
+        // Wait a bit for any in-progress TX to complete (but don't block too long)
+        // If TX is in progress, wait up to 25ms for it to finish
+        uint32_t wait_count = 0;
+        while (g_tx_in_progress && wait_count < 25)
+        {
+            Sleep(1);
+            wait_count++;
+        }
+        
+        // Force DW3000 to IDLE state to stop any transmission
         dwt_forcetrxoff();
-        send_response("OK STOP");
+        
+        // Clear any pending status bits
+        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+        
+        // Reset TX in progress flag in case it was stuck
+        g_tx_in_progress = 0;
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
@@ -1060,12 +1082,25 @@ static void ping_timer_handler(void *p_context)
  */
 static void send_packet(void)
 {
+    // Check if test is still running - exit early if stopped
+    if (!g_test_running)
+    {
+        return;
+    }
+    
     // Prevent overlapping calls
     if (g_tx_in_progress)
     {
         return;
     }
     g_tx_in_progress = 1;
+    
+    // Double-check test is still running after acquiring lock
+    if (!g_test_running)
+    {
+        g_tx_in_progress = 0;
+        return;
+    }
     
     uint32_t status_reg;
     uint32_t timeout_count = 0;
@@ -1108,23 +1143,44 @@ static void send_packet(void)
     uint16_t data_len = sizeof(uwb_tcp_packet_t);
     memcpy(g_tx_buffer, &g_tx_packet, data_len);
 
+    // Ensure DW3000 is in IDLE state before writing TX data
+    if (!dwt_checkidlerc())
+    {
+        dwt_forcetrxoff();
+        Sleep(1); // Small delay to ensure IDLE state
+    }
+    
     // Write TX data
     dwt_writetxdata(data_len, g_tx_buffer, 0);
     dwt_writetxfctrl(frame_len, 0, 0);
 
-    dwt_forcetrxoff();
+    // Start transmission
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
     // Poll for TX complete with timeout to prevent blocking timer handler
     // Use manual polling instead of waitforsysstatus to allow timeout
+    // Check for both success (TXFRS) and error conditions (TXFRB, TXPRS)
     status_reg = dwt_readsysstatuslo();
-    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
+    uint32_t tx_error_mask = DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
+    
+    while (!(status_reg & (DWT_INT_TXFRS_BIT_MASK | tx_error_mask)) && timeout_count < max_timeout_ms && g_test_running)
     {
         Sleep(1); // Sleep 1ms
         timeout_count++;
         status_reg = dwt_readsysstatuslo();
     }
+    
+    // If test was stopped during TX, exit early
+    if (!g_test_running)
+    {
+        // Force to IDLE and clear flag
+        dwt_forcetrxoff();
+        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+        g_tx_in_progress = 0;
+        return;
+    }
 
+    // Check for TX success
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
         // Clear TX frame sent event
@@ -1139,22 +1195,43 @@ static void send_packet(void)
             add_to_retransmit_queue(g_tx_packet.seq, g_tx_buffer, data_len);
         }
     }
-    else
+    // Check for TX errors
+    else if (status_reg & tx_error_mask)
     {
-        // Timeout or error occurred
-        if (timeout_count >= max_timeout_ms)
+        // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
+        g_stats.tx_errors++;
+        if (status_reg & DWT_INT_TXFRB_BIT_MASK)
         {
-            g_stats.tx_timeouts++;
-            g_stats.last_error = 2; // TX timeout error
+            g_stats.last_error = 3; // TX frame rejected
+        }
+        else if (status_reg & DWT_INT_TXPRS_BIT_MASK)
+        {
+            g_stats.last_error = 4; // TX preamble rejected
         }
         else
         {
-            g_stats.tx_errors++;
             g_stats.last_error = 1; // General TX error
         }
+        
+        // Clear error bits and force to IDLE
+        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+        dwt_forcetrxoff(); // Force to IDLE state to recover
+        
+        // Wait a bit for DW3000 to recover
+        Sleep(2);
+    }
+    // Timeout occurred
+    else
+    {
+        g_stats.tx_timeouts++;
+        g_stats.last_error = 2; // TX timeout error
+        
         // Clear any pending status bits and force to IDLE
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff(); // Force to IDLE state to recover
+        
+        // Wait a bit for DW3000 to recover
+        Sleep(2);
     }
     
     // Clear TX in progress flag
