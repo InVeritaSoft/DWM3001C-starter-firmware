@@ -1132,17 +1132,22 @@ static void send_packet(void)
         g_tx_packet.payload[i] = 0xAA;
     }
 
-    // Calculate packet size
-    uint16_t frame_len = sizeof(uwb_tcp_packet_t) + FCS_LEN;
-    uint16_t data_len = sizeof(uwb_tcp_packet_t);
+    // Calculate packet size based on actual payload length (not full structure size)
+    // Header: seq(4) + ack_seq(4) + flags(1) + window(2) + t_local(4) = 15 bytes
+    uint16_t header_len = sizeof(uwb_tcp_packet_t) - sizeof(g_tx_packet.payload);
+    uint16_t data_len = header_len + g_config.payload_len;
+    uint16_t frame_len = data_len + FCS_LEN;
+    
+    // Copy only the actual data length (not full structure with unused payload bytes)
     memcpy(g_tx_buffer, &g_tx_packet, data_len);
 
-    // Ensure DW3000 is ready for transmission (matches ex_22_orchestrator_v2)
-    dwt_forcetrxoff(); // Force to IDLE state if needed
-    
-    // Write TX data
+    // Write TX data and frame control (matches ex_22_orchestrator_v2 order)
     dwt_writetxdata(data_len, g_tx_buffer, 0);
     dwt_writetxfctrl(frame_len, 0, 0);
+
+    // Ensure DW3000 is ready for transmission (matches ex_22_orchestrator_v2)
+    // Force to IDLE state AFTER writing data but BEFORE starting TX
+    dwt_forcetrxoff();
 
     // CRITICAL: Clear any pending status bits BEFORE starting TX to prevent interference
     // Old status bits (especially TXFRB/TXPRS from previous errors) can cause immediate rejection
