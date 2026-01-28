@@ -539,11 +539,6 @@ static void send_response(const char *response)
     uint32_t timeout;
     uint32_t bytes_sent = 0;
     
-    // Diagnostic: Log TX start
-    char log_buf[64];
-    snprintf(log_buf, sizeof(log_buf), "[DBG] TX start: '%s' (%lu bytes)", response, (unsigned long)len);
-    test_run_info((unsigned char *)log_buf);
-    
     // CRITICAL: Enable RS-485 transmit mode BEFORE sending data (if DE pin defined)
     #ifdef RS485_DE_PIN
     nrf_gpio_pin_set(RS485_DE_PIN);  // Set DE HIGH = transmit mode
@@ -555,42 +550,33 @@ static void send_response(const char *response)
     bsp_board_led_on(2);
     
     // Send response string
-    // CRITICAL: Use very short timeout (2ms) to prevent blocking UART interrupt handler
-    // If UART TX buffer is full, fail fast rather than blocking
-    // Called from interrupt context, so must be extremely fast
+    // CRITICAL: Balance between non-blocking and actually sending the response
+    // 5ms timeout allows buffer to clear while still being fast enough to not block significantly
+    // Called from interrupt context, so must be reasonably fast
+    // NOTE: Removed diagnostic logging from this function to avoid UART TX buffer conflicts
     for (uint32_t i = 0; i < len; i++)
     {
-        timeout = 2;  // Reduced to 2ms to minimize blocking in interrupt handler
+        timeout = 5;  // 5ms timeout - balance between non-blocking and success
         uint32_t uart_result;
-        // Log first character for debugging
-        if (i == 0) {
-            snprintf(log_buf, sizeof(log_buf), "[DBG] UART put start: char='%c' (0x%02X)", response[i], (unsigned char)response[i]);
-            test_run_info((unsigned char *)log_buf);
-        }
         while ((uart_result = app_uart_put(response[i])) != NRF_SUCCESS && timeout > 0)
         {
             timeout--;
             Sleep(1);
         }
-        if (uart_result != NRF_SUCCESS && timeout == 0) {
-            snprintf(log_buf, sizeof(log_buf), "[DBG] UART put FAILED: char='%c' result=0x%08lX timeout", response[i], (unsigned long)uart_result);
-            test_run_info((unsigned char *)log_buf);
-        }
         if (timeout == 0) {
-            // TX failed - blink red LED to indicate error
+            // TX failed - blink red LED to indicate error and exit early
             bsp_board_led_off(2);
             bsp_board_led_on(0);  // Red LED = error
             nrf_delay_ms(50);
             bsp_board_led_off(0);
-            snprintf(log_buf, sizeof(log_buf), "[DBG] TX FAILED at byte %lu/%lu", (unsigned long)i, (unsigned long)len);
-            test_run_info((unsigned char *)log_buf);
+            // Don't log here - would compete for UART TX buffer
             return;  // Exit early on failure
         }
         bytes_sent++;
     }
     
     // Send carriage return
-    timeout = 2;  // Reduced to 2ms to minimize blocking
+    timeout = 5;  // 5ms timeout
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -601,7 +587,7 @@ static void send_response(const char *response)
     }
     
     // Send newline
-    timeout = 2;  // Reduced to 2ms to minimize blocking
+    timeout = 5;  // 5ms timeout
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -625,10 +611,6 @@ static void send_response(const char *response)
     // CRITICAL: Turn off LED immediately - do NOT delay here as it blocks interrupt handler
     // The LED was already on during transmission, which is sufficient indication
     bsp_board_led_off(2);
-    
-    // Diagnostic: Log TX completion
-    snprintf(log_buf, sizeof(log_buf), "[DBG] TX complete: %lu bytes sent", (unsigned long)bytes_sent);
-    test_run_info((unsigned char *)log_buf);
 }
 
 /**
@@ -817,11 +799,7 @@ static void parse_command(char *cmd)
         return; // Empty command
     }
     
-    // Debug: log received command
-    char log_buf[128];
-    snprintf(log_buf, sizeof(log_buf), "[DBG] parse_command: '%s' (len=%lu)", cmd, (unsigned long)strlen(cmd));
-    test_run_info((unsigned char *)log_buf);
-    
+    // Convert to uppercase (removed diagnostic logging to avoid UART TX buffer conflicts)
     char cmd_upper[64];
     strncpy(cmd_upper, cmd, sizeof(cmd_upper) - 1);
     cmd_upper[sizeof(cmd_upper) - 1] = '\0';
@@ -833,23 +811,17 @@ static void parse_command(char *cmd)
             cmd_upper[i] = cmd_upper[i] - 'a' + 'A';
         }
     }
-    
-    // Debug: log uppercase command
-    snprintf(log_buf, sizeof(log_buf), "[DBG] cmd_upper: '%s'", cmd_upper);
-    test_run_info((unsigned char *)log_buf);
 
     if (strcmp(cmd_upper, "PNG") == 0 || strcmp(cmd_upper, "PING") == 0)
     {
-        test_run_info((unsigned char *)"[DBG] PNG received, sending OK response");
+        // Removed diagnostic logging to avoid UART TX buffer conflicts
         send_response("OK");
-        test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;
     }
     else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
     {
-        test_run_info((unsigned char *)"[DBG] NODE_TYPE command received");
+        // Removed diagnostic logging to avoid UART TX buffer conflicts
         send_response("OK NODE_TYPE=TX_V2");
-        test_run_info((unsigned char *)"[DBG] NODE_TYPE response sent");
         return;
     }
     else if (strcmp(cmd_upper, "CFG") == 0 || strcmp(cmd_upper, "CONFIG") == 0 || strcmp(cmd_upper, "SET_CONFIG") == 0)
