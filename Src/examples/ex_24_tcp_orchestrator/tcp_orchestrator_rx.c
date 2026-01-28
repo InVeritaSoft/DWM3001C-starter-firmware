@@ -420,9 +420,11 @@ static void send_response(const char *response)
     bsp_board_led_on(2);
     
     // Send response string
+    // CRITICAL: Use short timeout (10ms) to prevent blocking UART interrupt handler
+    // If UART TX buffer is full, fail fast rather than blocking for seconds
     for (uint32_t i = 0; i < len; i++)
     {
-        timeout = 1000;
+        timeout = 10;  // Reduced from 1000ms to 10ms to prevent blocking
         uint32_t uart_result;
         // Log first character for debugging
         if (i == 0) {
@@ -452,7 +454,7 @@ static void send_response(const char *response)
     }
     
     // Send carriage return
-    timeout = 1000;
+    timeout = 10;  // Reduced from 1000ms to 10ms
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -463,7 +465,7 @@ static void send_response(const char *response)
     }
     
     // Send newline
-    timeout = 1000;
+    timeout = 10;  // Reduced from 1000ms to 10ms
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -699,9 +701,11 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
+        // Send response IMMEDIATELY to prevent timeout (before any cleanup that might take time)
+        send_response("OK STOP");
+        
         g_test_running = 0;
         dwt_forcetrxoff();
-        send_response("OK STOP");
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {

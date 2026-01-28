@@ -555,9 +555,11 @@ static void send_response(const char *response)
     bsp_board_led_on(2);
     
     // Send response string
+    // CRITICAL: Use short timeout (10ms) to prevent blocking UART interrupt handler
+    // If UART TX buffer is full, fail fast rather than blocking for seconds
     for (uint32_t i = 0; i < len; i++)
     {
-        timeout = 1000;
+        timeout = 10;  // Reduced from 1000ms to 10ms to prevent blocking
         uint32_t uart_result;
         // Log first character for debugging
         if (i == 0) {
@@ -587,7 +589,7 @@ static void send_response(const char *response)
     }
     
     // Send carriage return
-    timeout = 1000;
+    timeout = 10;  // Reduced from 1000ms to 10ms
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -598,7 +600,7 @@ static void send_response(const char *response)
     }
     
     // Send newline
-    timeout = 1000;
+    timeout = 10;  // Reduced from 1000ms to 10ms
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -1202,9 +1204,13 @@ static void send_packet(void)
             g_stats.last_error = 1; // General TX error
         }
         
-        // Clear error bits and force to IDLE (matches ex_22_orchestrator_v2 - no extra delay)
+        // Clear error bits and force to IDLE
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff(); // Force to IDLE state to recover
+        
+        // Small delay to allow DW3000 to recover from error state
+        // This helps prevent rapid-fire errors that could overwhelm the chip
+        Sleep(1);
     }
     // Timeout occurred
     else
