@@ -465,7 +465,7 @@ static uint32_t uart_init(void)
         .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control (matches orchestrator_v2)
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
-        .baud_rate = 15400960  // 57600 baud (Arduino bridge expects 57600)
+        .baud_rate = 30801920  // 115200 baud (direct RS485 connection, no Arduino bridge)
     };
 
     APP_UART_FIFO_INIT(&comm_params,
@@ -592,7 +592,7 @@ static void send_response(const char *response)
     }
     
     // Wait for UART transmission to complete
-    // At 57600 baud: ~174us per byte, add margin to ensure all bytes are transmitted
+    // At 115200 baud: ~87us per byte, add margin to ensure all bytes are transmitted
     nrf_delay_ms(5);  // Increased delay to ensure transmission completes
     
     // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
