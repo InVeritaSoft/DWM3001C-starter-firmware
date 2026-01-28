@@ -1144,6 +1144,10 @@ static void send_packet(void)
     dwt_writetxdata(data_len, g_tx_buffer, 0);
     dwt_writetxfctrl(frame_len, 0, 0);
 
+    // CRITICAL: Clear any pending status bits BEFORE starting TX to prevent interference
+    // Old status bits (especially TXFRB/TXPRS from previous errors) can cause immediate rejection
+    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+
     // Start transmission
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
