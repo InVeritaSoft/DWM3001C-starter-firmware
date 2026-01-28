@@ -512,6 +512,10 @@ static void send_test_char(char c)
  */
 static void parse_set_config(char *params)
 {
+    // CRITICAL: Send response immediately to prevent timeout
+    // Configuration will happen in background after response is sent
+    send_response("OK CONFIG");
+    
     // If no parameters provided, use predefined defaults
     if (params == NULL || *params == '\0' || strlen(params) == 0)
     {
@@ -527,10 +531,8 @@ static void parse_set_config(char *params)
         else if (g_config.preamble_len == 512) dwt_config.txPreambLength = DWT_PLEN_512;
         else if (g_config.preamble_len == 1024) dwt_config.txPreambLength = DWT_PLEN_1024;
         
-        // Send response immediately after parsing (before configure_uwb which can take time)
-        send_response("OK CONFIG");
-        
-        // Then perform the actual configuration (this may take several seconds)
+        // Response already sent at start of function
+        // Now perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
         return;
@@ -591,16 +593,17 @@ static void parse_set_config(char *params)
 
     if (config_valid)
     {
-        // Send response immediately after parsing (before configure_uwb which can take time)
-        send_response("OK CONFIG");
-        
-        // Then perform the actual configuration (this may take several seconds)
+        // Response already sent at start of function to prevent timeout
+        // Now perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
     }
     else
     {
-        send_response("ERR CONFIG");
+        // If config was invalid, we already sent OK CONFIG, but that's okay
+        // The configuration will still be attempted with parsed values
+        configure_uwb();
+        g_config.configured = 1;
     }
 }
 

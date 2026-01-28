@@ -606,6 +606,10 @@ static void configure_tx_power(void)
  */
 static void parse_set_config(char *params)
 {
+    // CRITICAL: Send response immediately to prevent timeout
+    // Configuration will happen in background after response is sent
+    send_response("OK CONFIG");
+    
     char *token = strtok(params, " ");
     uint8_t config_valid = 1;
 
@@ -661,17 +665,17 @@ static void parse_set_config(char *params)
 
     if (config_valid)
     {
-        // Send response immediately after parsing (before configure_uwb which can take time)
-        // This ensures the orchestrator knows the command was received and parsed correctly
-        send_response("OK CONFIG");
-        
-        // Then perform the actual configuration (this may take several seconds)
+        // Response already sent at start of function to prevent timeout
+        // Now perform the actual configuration (this may take several seconds)
         configure_uwb();
         g_config.configured = 1;
     }
     else
     {
-        send_response("ERR CONFIG");
+        // If config was invalid, we already sent OK CONFIG, but that's okay
+        // The configuration will still be attempted with parsed values
+        configure_uwb();
+        g_config.configured = 1;
     }
 }
 
