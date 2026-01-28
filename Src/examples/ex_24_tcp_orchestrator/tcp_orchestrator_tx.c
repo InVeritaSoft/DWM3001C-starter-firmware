@@ -151,6 +151,7 @@ static dwt_config_t dwt_config = {
 
 static tx_stats_t g_stats = {0};
 static volatile uint8_t g_test_running = 0;
+static volatile uint8_t g_tx_in_progress = 0; // Prevent overlapping TX calls
 static volatile uint32_t g_seq_num = 0;
 static uint8_t g_tx_buffer[FRAME_LEN_MAX];
 static uwb_tcp_packet_t g_tx_packet;
@@ -890,8 +891,19 @@ static void parse_command(char *cmd)
         g_queue_tail = 0;
         g_queue_count = 0;
 
-        uint32_t period_ms = 1000 / g_config.pkt_rate_hz;
+        // Calculate timer period based on packet rate
+        uint32_t period_ms = 1000;
+        if (g_config.pkt_rate_hz > 0)
+        {
+            period_ms = 1000 / g_config.pkt_rate_hz;
+        }
         if (period_ms < 1) period_ms = 1;
+        if (period_ms > 1000) period_ms = 1000; // Cap at 1 second max
+        
+        // Debug: log timer period
+        snprintf(log_buf, sizeof(log_buf), "[DBG] Starting TX timer: period_ms=%lu pkt_rate_hz=%lu", 
+                 (unsigned long)period_ms, (unsigned long)g_config.pkt_rate_hz);
+        test_run_info((unsigned char *)log_buf);
         
         uint32_t err_code = app_timer_start(m_tx_timer_id, APP_TIMER_TICKS(period_ms), NULL);
 
@@ -996,17 +1008,30 @@ static void configure_uwb(void)
  */
 static void tx_timer_handler(void *p_context)
 {
-    if (g_test_running)
+    // Always check if test is running - don't block timer if test stopped
+    if (!g_test_running)
     {
-        // Check window size limit in TCP mode
-        if (g_config.tcp_mode && g_stats.packets_in_flight >= g_config.window_size)
-        {
-            // Window full - skip this transmission
-            g_stats.acks_missing++;
-            return;
-        }
-        send_packet();
+        return;
     }
+    
+    // Prevent overlapping TX calls - if previous TX is still in progress, skip this one
+    // This prevents blocking the timer handler if send_packet() takes longer than timer period
+    if (g_tx_in_progress)
+    {
+        // Previous TX still in progress - skip this timer tick to prevent blocking
+        return;
+    }
+    
+    // Check window size limit in TCP mode
+    if (g_config.tcp_mode && g_stats.packets_in_flight >= g_config.window_size)
+    {
+        // Window full - skip this transmission but keep timer running
+        g_stats.acks_missing++;
+        return;
+    }
+    
+    // Send packet - this should not block the timer handler
+    send_packet();
 }
 
 /**
@@ -1035,6 +1060,13 @@ static void ping_timer_handler(void *p_context)
  */
 static void send_packet(void)
 {
+    // Prevent overlapping calls
+    if (g_tx_in_progress)
+    {
+        return;
+    }
+    g_tx_in_progress = 1;
+    
     uint32_t status_reg;
     uint32_t timeout_count = 0;
     // Maximum wait time: 20ms (should be enough for TX, but prevents blocking timer)
@@ -1042,6 +1074,21 @@ static void send_packet(void)
     const uint32_t max_timeout_ms = 20;
 
     g_stats.total_attempted++;
+    
+    // Ensure DW3000 is in a good state before starting TX
+    if (!dwt_checkidlerc())
+    {
+        // DW3000 not ready - force to IDLE and try again
+        dwt_forcetrxoff();
+        Sleep(1);
+        // If still not ready, skip this transmission but keep timer running
+        if (!dwt_checkidlerc())
+        {
+            g_stats.tx_errors++;
+            g_tx_in_progress = 0;
+            return;
+        }
+    }
 
     // Prepare TCP-like packet
     g_tx_packet.seq = g_seq_num++;
@@ -1109,6 +1156,9 @@ static void send_packet(void)
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff(); // Force to IDLE state to recover
     }
+    
+    // Clear TX in progress flag
+    g_tx_in_progress = 0;
 }
 
 /**
