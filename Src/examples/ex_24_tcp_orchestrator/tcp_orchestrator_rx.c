@@ -420,11 +420,12 @@ static void send_response(const char *response)
     bsp_board_led_on(2);
     
     // Send response string
-    // CRITICAL: Use short timeout (10ms) to prevent blocking UART interrupt handler
-    // If UART TX buffer is full, fail fast rather than blocking for seconds
+    // CRITICAL: Use very short timeout (2ms) to prevent blocking UART interrupt handler
+    // If UART TX buffer is full, fail fast rather than blocking
+    // Called from interrupt context, so must be extremely fast
     for (uint32_t i = 0; i < len; i++)
     {
-        timeout = 10;  // Reduced from 1000ms to 10ms to prevent blocking
+        timeout = 2;  // Reduced to 2ms to minimize blocking in interrupt handler
         uint32_t uart_result;
         // Log first character for debugging
         if (i == 0) {
@@ -454,7 +455,7 @@ static void send_response(const char *response)
     }
     
     // Send carriage return
-    timeout = 10;  // Reduced from 1000ms to 10ms
+    timeout = 2;  // Reduced to 2ms to minimize blocking
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -465,7 +466,7 @@ static void send_response(const char *response)
     }
     
     // Send newline
-    timeout = 10;  // Reduced from 1000ms to 10ms
+    timeout = 2;  // Reduced to 2ms to minimize blocking
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -477,7 +478,8 @@ static void send_response(const char *response)
     
     // Wait for UART transmission to complete
     // At 115200 baud: ~87us per byte, add margin to ensure all bytes are transmitted
-    nrf_delay_ms(5);  // Increased delay to ensure transmission completes
+    // CRITICAL: Use minimal delay to avoid blocking UART interrupt handler
+    nrf_delay_ms(1);  // Reduced from 5ms to 1ms to prevent blocking interrupt handler
     
     // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
     #ifdef RS485_DE_PIN
@@ -485,8 +487,8 @@ static void send_response(const char *response)
     nrf_delay_us(50);  // Wait for transceiver to switch to receive mode
     #endif
     
-    // Keep LED on for 500ms so it's visible (for all command responses)
-    nrf_delay_ms(500);
+    // CRITICAL: Turn off LED immediately - do NOT delay here as it blocks interrupt handler
+    // The LED was already on during transmission, which is sufficient indication
     bsp_board_led_off(2);
     
     // Diagnostic: Log TX completion

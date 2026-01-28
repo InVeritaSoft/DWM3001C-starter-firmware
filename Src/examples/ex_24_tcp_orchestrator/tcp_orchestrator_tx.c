@@ -555,11 +555,12 @@ static void send_response(const char *response)
     bsp_board_led_on(2);
     
     // Send response string
-    // CRITICAL: Use short timeout (10ms) to prevent blocking UART interrupt handler
-    // If UART TX buffer is full, fail fast rather than blocking for seconds
+    // CRITICAL: Use very short timeout (2ms) to prevent blocking UART interrupt handler
+    // If UART TX buffer is full, fail fast rather than blocking
+    // Called from interrupt context, so must be extremely fast
     for (uint32_t i = 0; i < len; i++)
     {
-        timeout = 10;  // Reduced from 1000ms to 10ms to prevent blocking
+        timeout = 2;  // Reduced to 2ms to minimize blocking in interrupt handler
         uint32_t uart_result;
         // Log first character for debugging
         if (i == 0) {
@@ -589,7 +590,7 @@ static void send_response(const char *response)
     }
     
     // Send carriage return
-    timeout = 10;  // Reduced from 1000ms to 10ms
+    timeout = 2;  // Reduced to 2ms to minimize blocking
     while (app_uart_put('\r') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -600,7 +601,7 @@ static void send_response(const char *response)
     }
     
     // Send newline
-    timeout = 10;  // Reduced from 1000ms to 10ms
+    timeout = 2;  // Reduced to 2ms to minimize blocking
     while (app_uart_put('\n') != NRF_SUCCESS && timeout > 0)
     {
         timeout--;
@@ -612,7 +613,8 @@ static void send_response(const char *response)
     
     // Wait for UART transmission to complete
     // At 115200 baud: ~87us per byte, add margin to ensure all bytes are transmitted
-    nrf_delay_ms(5);  // Increased delay to ensure transmission completes
+    // CRITICAL: Use minimal delay to avoid blocking UART interrupt handler
+    nrf_delay_ms(1);  // Reduced from 5ms to 1ms to prevent blocking interrupt handler
     
     // CRITICAL: Disable RS-485 transmit mode AFTER sending data (if DE pin defined)
     #ifdef RS485_DE_PIN
@@ -620,8 +622,8 @@ static void send_response(const char *response)
     nrf_delay_us(50);  // Wait for transceiver to switch to receive mode
     #endif
     
-    // Keep LED on for 500ms so it's visible (for all command responses)
-    nrf_delay_ms(500);
+    // CRITICAL: Turn off LED immediately - do NOT delay here as it blocks interrupt handler
+    // The LED was already on during transmission, which is sufficient indication
     bsp_board_led_off(2);
     
     // Diagnostic: Log TX completion
@@ -1138,6 +1140,15 @@ static void send_packet(void)
     uint16_t data_len = header_len + g_config.payload_len;
     uint16_t frame_len = data_len + FCS_LEN;
     
+    // Diagnostic: Log frame length calculation (first few attempts only to avoid spam)
+    if (g_stats.total_attempted <= 3)
+    {
+        char log_buf[128];
+        snprintf(log_buf, sizeof(log_buf), "[DBG] TX: header=%u payload=%u data=%u frame=%u", 
+                 header_len, g_config.payload_len, data_len, frame_len);
+        test_run_info((unsigned char *)log_buf);
+    }
+    
     // Copy only the actual data length (not full structure with unused payload bytes)
     memcpy(g_tx_buffer, &g_tx_packet, data_len);
 
@@ -1148,8 +1159,27 @@ static void send_packet(void)
     // Ensure DW3000 is ready for transmission (matches ex_22_orchestrator_v2)
     // Force to IDLE state AFTER writing data but BEFORE starting TX
     dwt_forcetrxoff();
-
-    // CRITICAL: Clear any pending status bits BEFORE starting TX to prevent interference
+    
+    // CRITICAL: Verify IDLE state and wait if needed (prevents TX frame rejection)
+    // DW3000 needs time to transition to IDLE after forcetrxoff()
+    uint32_t idle_check_count = 0;
+    uint8_t was_idle = dwt_checkidlerc();
+    while (!dwt_checkidlerc() && idle_check_count < 10)
+    {
+        Sleep(1);
+        idle_check_count++;
+    }
+    
+    // Diagnostic: Log IDLE state (first few attempts only)
+    if (g_stats.total_attempted <= 3)
+    {
+        char log_buf[128];
+        snprintf(log_buf, sizeof(log_buf), "[DBG] TX: was_idle=%u after_force_idle=%u wait_count=%lu", 
+                 was_idle, dwt_checkidlerc(), (unsigned long)idle_check_count);
+        test_run_info((unsigned char *)log_buf);
+    }
+    
+    // Clear any pending status bits BEFORE starting TX to prevent interference
     // Old status bits (especially TXFRB/TXPRS from previous errors) can cause immediate rejection
     dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
 
