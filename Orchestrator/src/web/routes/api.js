@@ -399,30 +399,82 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
   router.post("/nodes/:nodeId/start", async (req, res) => {
     try {
       const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+      const nodeId = node.nodeId;
 
-      // Check if node is configured before starting
-      if (node.getState() !== "CONFIGURED") {
-        // Try to configure with default settings if not configured
-        const defaultConfig = config.getTestConfig();
+      // Ensure node is connected before attempting any operations
+      if (!node.isConnected()) {
+        console.log(
+          `[API] Node ${nodeId} not connected, attempting to connect...`,
+        );
         try {
-          await node.configure({
-            channel: defaultConfig.channel || 5,
-            data_rate: defaultConfig.data_rate || "6m8",
-            preamble_len: defaultConfig.preamble_len || 128,
-            payload_len: defaultConfig.payload_len || 64,
-            tx_power_idx: defaultConfig.tx_power_idx || 5,
-            pkt_rate_hz: defaultConfig.pkt_rate_hz || 100,
-          });
-        } catch (configError) {
+          await node.connect();
+          console.log(`[API] Node ${nodeId} connected successfully`);
+        } catch (connectError) {
           return res.status(400).json({
-            error: `Node must be configured before starting. Configuration failed: ${configError.message}`,
+            error: `Node ${nodeId} connection failed: ${connectError.message}. Please check serial port configuration.`,
           });
         }
       }
 
-      const result = await node.startTest();
-      res.json({ success: result });
+      // Verify node is responding with PING before attempting configuration
+      console.log(`[API] Verifying Node ${nodeId} is responding...`);
+      try {
+        const pingResult = await node.ping();
+        if (!pingResult) {
+          return res.status(400).json({
+            error: `Node ${nodeId} is not responding to PING commands. Please check firmware and hardware connections.`,
+            details: {
+              nodeState: node.getState(),
+              connected: node.isConnected(),
+              port: node.rs485Comm.port,
+              lastError: node.lastError,
+            },
+          });
+        }
+        console.log(`[API] Node ${nodeId} PING successful`);
+      } catch (pingError) {
+        return res.status(400).json({
+          error: `Node ${nodeId} is not responding to PING: ${pingError.message}. Cannot proceed with START.`,
+          details: {
+            nodeState: node.getState(),
+            connected: node.isConnected(),
+            port: node.rs485Comm.port,
+            lastError: node.lastError,
+            suggestion:
+              "Check firmware is running, RS-485 hardware connection, and serial port configuration.",
+          },
+        });
+      }
+
+      // Skip auto-configuration - just try to start directly
+      // If firmware returns "ERR NOT_CONFIGURED", we'll handle that error
+      console.log(
+        `[API] Starting test on Node ${nodeId} (skipping auto-configuration)...`,
+      );
+      try {
+        const result = await node.startTest();
+        res.json({ success: result });
+      } catch (startError) {
+        // Handle "ERR NOT_CONFIGURED" from firmware
+        if (
+          startError.message &&
+          startError.message.includes("NOT_CONFIGURED")
+        ) {
+          return res.status(400).json({
+            error: `Node ${nodeId} is not configured. Please configure the node first using the CFG button.`,
+            details: {
+              nodeState: node.getState(),
+              connected: node.isConnected(),
+              port: node.rs485Comm.port,
+              firmwareError: startError.message,
+            },
+          });
+        }
+        // Re-throw other errors to be handled by outer catch
+        throw startError;
+      }
     } catch (error) {
+      console.error(`[API] START command error:`, error.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -497,6 +549,35 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
       const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
       const response = await node.rs485Comm.sendCommand("NODE_TYPE");
       res.json({ response });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
+   * /api/nodes/{nodeId}/config:
+   *   get:
+   *     summary: Get current configuration of a node
+   *     tags: [Node Control]
+   *     parameters:
+   *       - in: path
+   *         name: nodeId
+   *         required: true
+   *         schema: { type: string, enum: [A, B] }
+   *     responses:
+   *       200:
+   *         description: Node configuration
+   */
+  router.get("/nodes/:nodeId/config", async (req, res) => {
+    try {
+      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+      const config = node.getConfig();
+      res.json({
+        config: config,
+        state: node.getState(),
+        connected: node.isConnected(),
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

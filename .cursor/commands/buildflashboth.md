@@ -1,0 +1,1 @@
+build and flash both `Src\examples\ex_24_tcp_orchestrator`

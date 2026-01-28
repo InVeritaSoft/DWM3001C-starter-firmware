@@ -14,7 +14,8 @@ import "./Dashboard.css";
  * Real-time monitoring dashboard
  */
 export default function Dashboard() {
-  const { status, stats, connected, error, testReport, testRunning } = useRealtimeData();
+  const { status, stats, connected, error, testReport, testRunning } =
+    useRealtimeData();
   const { showSuccess, showError } = useToast();
   const [testPlan, setTestPlan] = useState(null);
   const [currentTest, setCurrentTest] = useState(null);
@@ -57,9 +58,11 @@ export default function Dashboard() {
     const prevNodeBState = prevStatesRef.current.nodeB;
 
     // Check if both nodes just stopped (were running, now stopped)
-    const bothJustStopped = 
-      (prevNodeAState === 'RUNNING' && nodeAState === 'STOPPED') &&
-      (prevNodeBState === 'RUNNING' && nodeBState === 'STOPPED');
+    const bothJustStopped =
+      prevNodeAState === "RUNNING" &&
+      nodeAState === "STOPPED" &&
+      prevNodeBState === "RUNNING" &&
+      nodeBState === "STOPPED";
 
     if (bothJustStopped) {
       handleGenerateReport();
@@ -68,7 +71,7 @@ export default function Dashboard() {
     // Update previous states
     prevStatesRef.current = {
       nodeA: nodeAState,
-      nodeB: nodeBState
+      nodeB: nodeBState,
     };
   }, [status?.nodeA?.state, status?.nodeB?.state]);
 
@@ -78,20 +81,36 @@ export default function Dashboard() {
       console.log("Starting test on both nodes...");
       const [resultA, resultB] = await Promise.allSettled([
         apiClient.startNode("A"),
-        apiClient.startNode("B")
+        apiClient.startNode("B"),
       ]);
 
       const errors = [];
-      if (resultA.status === 'rejected') {
-        errors.push(`Node A: ${resultA.reason?.message || resultA.reason}`);
+      if (resultA.status === "rejected") {
+        const errorMsg =
+          resultA.reason?.response?.data?.error ||
+          resultA.reason?.response?.data?.message ||
+          resultA.reason?.message ||
+          String(resultA.reason);
+        const errorDetails = resultA.reason?.response?.data?.details
+          ? `\nDetails: ${JSON.stringify(resultA.reason.response.data.details, null, 2)}`
+          : "";
+        errors.push(`Node A: ${errorMsg}${errorDetails}`);
       }
-      if (resultB.status === 'rejected') {
-        errors.push(`Node B: ${resultB.reason?.message || resultB.reason}`);
+      if (resultB.status === "rejected") {
+        const errorMsg =
+          resultB.reason?.response?.data?.error ||
+          resultB.reason?.response?.data?.message ||
+          resultB.reason?.message ||
+          String(resultB.reason);
+        const errorDetails = resultB.reason?.response?.data?.details
+          ? `\nDetails: ${JSON.stringify(resultB.reason.response.data.details, null, 2)}`
+          : "";
+        errors.push(`Node B: ${errorMsg}${errorDetails}`);
       }
 
       if (errors.length > 0) {
         console.error("Failed to start test on some nodes:", errors);
-        showError(`Failed to start test:\n${errors.join('\n')}`);
+        showError(`Failed to start test:\n${errors.join("\n")}`);
       } else {
         console.log("✓ Test started on both nodes");
         showSuccess("Test started on both nodes");
@@ -108,20 +127,20 @@ export default function Dashboard() {
       console.log("Stopping test on both nodes...");
       const [resultA, resultB] = await Promise.allSettled([
         apiClient.stopNode("A"),
-        apiClient.stopNode("B")
+        apiClient.stopNode("B"),
       ]);
 
       const errors = [];
-      if (resultA.status === 'rejected') {
+      if (resultA.status === "rejected") {
         errors.push(`Node A: ${resultA.reason?.message || resultA.reason}`);
       }
-      if (resultB.status === 'rejected') {
+      if (resultB.status === "rejected") {
         errors.push(`Node B: ${resultB.reason?.message || resultB.reason}`);
       }
 
       if (errors.length > 0) {
         console.error("Failed to stop test on some nodes:", errors);
-        showError(`Failed to stop test:\n${errors.join('\n')}`);
+        showError(`Failed to stop test:\n${errors.join("\n")}`);
       } else {
         console.log("✓ Test stopped on both nodes");
         showSuccess("Test stopped on both nodes");
@@ -148,7 +167,7 @@ export default function Dashboard() {
   const handleCommandSent = (nodeId, command, result) => {
     console.log(`Node ${nodeId} command ${command} sent:`, result);
     // Optionally refresh stats after command
-    if (command === 'STAT') {
+    if (command === "STAT") {
       // Stats will be updated via realtime data hook
     }
   };
@@ -205,23 +224,20 @@ export default function Dashboard() {
               className="btn btn-primary"
               onClick={handleStartTest}
               disabled={testRunning}
-              style={{ marginBottom: '0.5rem' }}
+              style={{ marginBottom: "0.5rem" }}
             >
               Start Test (Both Nodes)
             </button>
-            <button
-              className="btn btn-danger"
-              onClick={handleStopTest}
-            >
+            <button className="btn btn-danger" onClick={handleStopTest}>
               Stop Test (Both Nodes)
             </button>
             <button
               className="btn btn-secondary"
               onClick={handleGenerateReport}
               disabled={reportLoading}
-              style={{ marginTop: '0.5rem', backgroundColor: '#9e9e9e' }}
+              style={{ marginTop: "0.5rem", backgroundColor: "#9e9e9e" }}
             >
-              {reportLoading ? 'Generating...' : 'Generate Report'}
+              {reportLoading ? "Generating..." : "Generate Report"}
             </button>
           </div>
         </div>

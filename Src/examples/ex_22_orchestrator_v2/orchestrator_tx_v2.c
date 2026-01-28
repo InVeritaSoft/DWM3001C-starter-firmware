@@ -842,6 +842,10 @@ static void ping_timer_handler(void *p_context)
 static void send_packet(void)
 {
     uint32_t status_reg;
+    uint32_t timeout_count = 0;
+    // Maximum wait time: 20ms (should be enough for TX, but prevents blocking timer)
+    // For 100Hz rate (10ms period), this allows 2x margin
+    const uint32_t max_timeout_ms = 20;
 
     g_stats.total_attempted++;
 
@@ -870,9 +874,15 @@ static void send_packet(void)
     // Start transmission
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
-    // Wait for TX complete using proper polling function (like simple_tx example)
-    // This is more efficient than manual polling with Sleep(1)
-    waitforsysstatus(&status_reg, NULL, DWT_INT_TXFRS_BIT_MASK, 0);
+    // Poll for TX complete with timeout to prevent blocking timer handler
+    // Use manual polling instead of waitforsysstatus to allow timeout
+    status_reg = dwt_readsysstatuslo();
+    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
+    {
+        Sleep(1); // Sleep 1ms
+        timeout_count++;
+        status_reg = dwt_readsysstatuslo();
+    }
 
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
@@ -884,15 +894,20 @@ static void send_packet(void)
     }
     else
     {
-        // Error occurred (should not happen with waitforsysstatus, but handle it)
-        g_stats.tx_errors++;
-        g_stats.last_error = 1; // General TX error
+        // Timeout or error occurred
+        if (timeout_count >= max_timeout_ms)
+        {
+            g_stats.tx_timeouts++;
+            g_stats.last_error = 2; // TX timeout error
+        }
+        else
         {
             g_stats.tx_errors++;
             g_stats.last_error = 1; // General TX error
         }
-        // Clear any pending status bits
+        // Clear any pending status bits and force to IDLE
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+        dwt_forcetrxoff(); // Force to IDLE state to recover
     }
 }
 

@@ -1,10 +1,11 @@
-import axios from 'axios';
+import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000, // Increased to 30 seconds to allow for CONFIG and START commands that may take time
 });
 
 /**
@@ -16,7 +17,7 @@ export const apiClient = {
    * Get current test status
    */
   async getStatus() {
-    const response = await api.get('/status');
+    const response = await api.get("/status");
     return response.data;
   },
 
@@ -24,7 +25,7 @@ export const apiClient = {
    * Get latest stats from both nodes
    */
   async getStats() {
-    const response = await api.get('/stats');
+    const response = await api.get("/stats");
     return response.data;
   },
 
@@ -36,7 +37,7 @@ export const apiClient = {
     if (file) {
       params.file = file;
     }
-    const response = await api.get('/history', { params });
+    const response = await api.get("/history", { params });
     return response.data;
   },
 
@@ -44,7 +45,7 @@ export const apiClient = {
    * Get test plan
    */
   async getTestPlan() {
-    const response = await api.get('/test-plan');
+    const response = await api.get("/test-plan");
     return response.data;
   },
 
@@ -52,7 +53,7 @@ export const apiClient = {
    * Start test
    */
   async startTest(test) {
-    const response = await api.post('/test/start', { test });
+    const response = await api.post("/test/start", { test });
     return response.data;
   },
 
@@ -60,7 +61,7 @@ export const apiClient = {
    * Stop test
    */
   async stopTest() {
-    const response = await api.post('/test/stop');
+    const response = await api.post("/test/stop");
     return response.data;
   },
 
@@ -68,7 +69,10 @@ export const apiClient = {
    * Send command to specific node
    */
   async sendNodeCommand(nodeId, command, timeout) {
-    const response = await api.post(`/nodes/${nodeId}/send`, { command, timeout });
+    const response = await api.post(`/nodes/${nodeId}/send`, {
+      command,
+      timeout,
+    });
     return response.data;
   },
 
@@ -140,10 +144,9 @@ export const apiClient = {
    * Generate test report
    */
   async generateReport() {
-    const response = await api.post('/test/report');
+    const response = await api.post("/test/report");
     return response.data;
   },
 };
 
 export default apiClient;
-

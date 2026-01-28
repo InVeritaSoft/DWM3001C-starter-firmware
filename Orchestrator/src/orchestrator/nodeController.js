@@ -258,8 +258,9 @@ export class NodeController extends EventEmitter {
       }
 
       console.log(`[NodeController ${this.nodeId}] Sending START command...`);
-      // Node B needs longer timeout
-      const timeout = this.nodeId === "B" ? 8000 : 5000;
+      // START command can take time if firmware is busy or timer initialization is slow
+      // Use longer timeout to account for potential delays
+      const timeout = this.nodeId === "B" ? 15000 : 15000;
       const response = await this.rs485Comm.startTest(timeout);
       console.log(
         `[NodeController ${this.nodeId}] START response: ${response}`,
