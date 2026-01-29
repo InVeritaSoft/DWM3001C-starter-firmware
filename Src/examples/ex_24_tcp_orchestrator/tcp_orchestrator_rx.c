@@ -478,6 +478,7 @@ static void send_response(const char *response)
     bsp_board_led_off(2);
     
     // Diagnostic: Log TX completion
+    char log_buf[128];
     snprintf(log_buf, sizeof(log_buf), "[DBG] TX complete: %lu bytes sent", (unsigned long)bytes_sent);
     test_run_info((unsigned char *)log_buf);
 }

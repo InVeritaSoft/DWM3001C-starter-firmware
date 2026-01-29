@@ -840,6 +840,7 @@ static void parse_command(char *cmd)
     else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0 || strcmp(cmd_upper, "START") == 0)
     {
         // Debug: log START command received
+        char log_buf[128];
         test_run_info((unsigned char *)"[DBG] START command received");
         snprintf(log_buf, sizeof(log_buf), "[DBG] configured=%d timer_init=%d", g_config.configured, g_timer_initialized);
         test_run_info((unsigned char *)log_buf);
@@ -971,6 +972,7 @@ static void parse_command(char *cmd)
     else
     {
         // Debug: log unknown command
+        char log_buf[128];
         snprintf(log_buf, sizeof(log_buf), "[DBG] Unknown command: '%s'", cmd_upper);
         test_run_info((unsigned char *)log_buf);
         send_response("ERR UNKNOWN_CMD");
