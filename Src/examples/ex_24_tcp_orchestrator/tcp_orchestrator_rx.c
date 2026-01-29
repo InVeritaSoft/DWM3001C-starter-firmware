@@ -638,9 +638,14 @@ static void parse_command(char *cmd)
         }
     }
     
-    // Debug: log uppercase command
-    snprintf(log_buf, sizeof(log_buf), "[DBG] cmd_upper: '%s'", cmd_upper);
-    test_run_info((unsigned char *)log_buf);
+    // #region agent log
+    // Debug: Log received command to file (not UART to avoid conflicts)
+    FILE *log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
+    if (log_file) {
+        fprintf(log_file, "{\"location\":\"tcp_orchestrator_rx.c:643\",\"message\":\"parse_command received\",\"data\":{\"cmd\":\"%s\",\"cmd_upper\":\"%s\",\"len\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}\n", cmd, cmd_upper, (unsigned long)strlen(cmd_upper), (unsigned long)0);
+        fclose(log_file);
+    }
+    // #endregion
 
     if (strcmp(cmd_upper, "PNG") == 0 || strcmp(cmd_upper, "PING") == 0)
     {
@@ -771,10 +776,14 @@ static void parse_command(char *cmd)
     }
     else
     {
-        // Debug: log unknown command
-        char log_buf[128];
-        snprintf(log_buf, sizeof(log_buf), "[DBG] Unknown command: '%s'", cmd_upper);
-        test_run_info((unsigned char *)log_buf);
+        // #region agent log
+        // Debug: Log unknown command to file (not UART to avoid conflicts)
+        FILE *log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
+        if (log_file) {
+            fprintf(log_file, "{\"location\":\"tcp_orchestrator_rx.c:783\",\"message\":\"Unknown command\",\"data\":{\"cmd_upper\":\"%s\",\"len\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}\n", cmd_upper, (unsigned long)strlen(cmd_upper), (unsigned long)0);
+            fclose(log_file);
+        }
+        // #endregion
         send_response("ERR UNKNOWN_CMD");
     }
 }
