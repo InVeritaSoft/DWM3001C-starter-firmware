@@ -670,14 +670,20 @@ static void parse_command(char *cmd)
     {
         send_response("OK NODE_TYPE=RX_V2");
     }
+    else if (strcmp(cmd_upper, "CFG") == 0 || strcmp(cmd_upper, "CONFIG") == 0 || strcmp(cmd_upper, "SET_CONFIG") == 0)
+    {
+        // No parameters - use predefined defaults
+        parse_set_config("");
+    }
     else if (strncmp(cmd_upper, "CFG ", 4) == 0 || strncmp(cmd_upper, "SET_CONFIG ", 11) == 0)
     {
+        // Has parameters - parse them
         char *params = strchr(cmd, ' ');
         if (params) params++;
         else params = "";
         parse_set_config(params);
     }
-    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0)
+    else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0 || strcmp(cmd_upper, "START") == 0)
     {
         if (!g_config.configured)
         {
@@ -704,7 +710,7 @@ static void parse_command(char *cmd)
         dwt_forcetrxoff();
         send_response("OK STOP");
     }
-    else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0)
+    else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
         // Read event counters
         dwt_readeventcounters(&g_event_cnts);
