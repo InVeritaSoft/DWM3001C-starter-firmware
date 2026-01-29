@@ -925,6 +925,8 @@ static void parse_command(char *cmd)
         
         // ORANGE LED: Turn off when test stops
         bsp_board_led_off(1);
+        // GREEN LED: Turn off when test stops
+        bsp_board_led_off(2);
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
@@ -1071,6 +1073,8 @@ static void send_packet(void)
     {
         return;
     }
+    
+    // CRITICAL: Set flag AFTER checking to prevent race conditions
     g_tx_in_progress = 1;
     
     // Double-check test is still running after acquiring lock
@@ -1120,6 +1124,8 @@ static void send_packet(void)
     
     // ORANGE LED: Turn on to indicate UWB packet transmission starting
     bsp_board_led_on(1);
+    // GREEN LED: Turn on to indicate UWB exchange (packet transmission)
+    bsp_board_led_on(2);
     
     // Start transmission immediately (matches working ex_22_orchestrator_v2)
     dwt_starttx(DWT_START_TX_IMMEDIATE);
@@ -1140,6 +1146,8 @@ static void send_packet(void)
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
             // ORANGE LED: Turn off when test stops
             bsp_board_led_off(1);
+            // GREEN LED: Turn off when test stops
+            bsp_board_led_off(2);
             g_tx_in_progress = 0;
             return;
         }
@@ -1161,6 +1169,8 @@ static void send_packet(void)
         
         // ORANGE LED: Turn off after successful transmission
         bsp_board_led_off(1);
+        // GREEN LED: Turn off after successful UWB exchange
+        bsp_board_led_off(2);
         
         // Add to retransmission queue if TCP mode enabled
         if (g_config.tcp_mode)
@@ -1225,6 +1235,8 @@ static void send_packet(void)
         
         // ORANGE LED: Turn off after error/timeout
         bsp_board_led_off(1);
+        // GREEN LED: Turn off after error/timeout
+        bsp_board_led_off(2);
     }
     
     // Clear TX in progress flag

@@ -17,8 +17,10 @@ export class TestRunner extends EventEmitter {
     this.isRunning = false;
     this.currentTest = null;
     this.pollInterval = null;
+    // CRITICAL FIX: Reduce polling interval for real-time chart updates
+    // Changed from 2 seconds to 500ms for smoother real-time updates
     this.pollIntervalMs =
-      (config.getTestConfig().poll_interval_seconds || 2) * 1000;
+      (config.getTestConfig().poll_interval_seconds || 0.5) * 1000;
     this.isPolling = false; // Guard to prevent overlapping polls
     this.skipPrompts = false; // Flag to skip interactive prompts (for web API)
 

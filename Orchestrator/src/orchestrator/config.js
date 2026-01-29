@@ -22,12 +22,12 @@ export class Config {
    * @param {string} settingsPath - Path to settings.yaml
    */
   loadSettings(
-    settingsPath = path.join(__dirname, "../../config/settings.yaml")
+    settingsPath = path.join(__dirname, "../../config/settings.yaml"),
   ) {
     try {
       if (!fs.existsSync(settingsPath)) {
         console.warn(
-          `Settings file not found: ${settingsPath}, using defaults`
+          `Settings file not found: ${settingsPath}, using defaults`,
         );
         this.settings = this.getDefaultSettings();
         return this.settings;
@@ -47,12 +47,12 @@ export class Config {
    * @param {string} testPlanPath - Path to testPlan.json
    */
   loadTestPlan(
-    testPlanPath = path.join(__dirname, "../../config/testPlan.json")
+    testPlanPath = path.join(__dirname, "../../config/testPlan.json"),
   ) {
     try {
       if (!fs.existsSync(testPlanPath)) {
         console.warn(
-          `Test plan file not found: ${testPlanPath}, using empty test plan`
+          `Test plan file not found: ${testPlanPath}, using empty test plan`,
         );
         this.testPlan = { tests: [] };
         return this.testPlan;
@@ -62,7 +62,7 @@ export class Config {
       return this.testPlan;
     } catch (error) {
       console.warn(
-        `Failed to load test plan: ${error.message}, using empty test plan`
+        `Failed to load test plan: ${error.message}, using empty test plan`,
       );
       this.testPlan = { tests: [] };
       return this.testPlan;
@@ -76,30 +76,35 @@ export class Config {
   getDefaultSettings() {
     // Communication mode: "jlink" (J-Link CDC UART) or "rs485" (CH340 USB-to-RS485)
     const commMode = (process.env.COMM_MODE || "jlink").toLowerCase();
-    
+
     // Default ports based on comm mode
-    const defaultPorts = commMode === "rs485" 
-      ? { node_a: "COM20", node_b: "COM19" }  // CH340 RS-485 adapters
-      : { node_a: "COM15", node_b: "COM11" }; // J-Link CDC UART
-    
+    const defaultPorts =
+      commMode === "rs485"
+        ? { node_a: "COM20", node_b: "COM19" } // CH340 RS-485 adapters
+        : { node_a: "COM15", node_b: "COM11" }; // J-Link CDC UART
+
     return {
       serial: {
         node_a_port:
-          process.env.SERIAL_NODE_A_PORT || process.env.NODE_A_PORT || defaultPorts.node_a,
+          process.env.SERIAL_NODE_A_PORT ||
+          process.env.NODE_A_PORT ||
+          defaultPorts.node_a,
         node_b_port:
-          process.env.SERIAL_NODE_B_PORT || process.env.NODE_B_PORT || defaultPorts.node_b,
+          process.env.SERIAL_NODE_B_PORT ||
+          process.env.NODE_B_PORT ||
+          defaultPorts.node_b,
         baudrate: parseInt(
           process.env.SERIAL_BAUDRATE || process.env.BAUDRATE || "115200",
-          10
+          10,
         ),
         timeout: parseInt(
           process.env.SERIAL_TIMEOUT || process.env.TIMEOUT || "5",
-          10
+          10,
         ),
         comm_mode: commMode,
       },
       test: {
-        poll_interval_seconds: 2,
+        poll_interval_seconds: 0.5, // 500ms for real-time chart updates
         default_test_duration_seconds: 30,
         channel: 5,
         data_rate: "6m8",
