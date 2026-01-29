@@ -1017,12 +1017,16 @@ static void tx_timer_handler(void *p_context)
         return;
     }
     
-    // Check window size limit in TCP mode
+    // CRITICAL FIX: Removed window size blocking for continuous transmission
+    // The window check was blocking transmission when window was full (10 packets)
+    // This caused transmission to stop after ~10 packets, making it feel "static"
+    // For continuous testing, we allow transmission regardless of window state
+    // Window tracking is still maintained for statistics, but doesn't block TX
     if (g_config.tcp_mode && g_stats.packets_in_flight >= g_config.window_size)
     {
-        // Window full - skip this transmission but keep timer running
+        // Window full - track missing ACKs for statistics
         g_stats.acks_missing++;
-        return;
+        // Continue transmission anyway to maintain continuous flow
     }
     
     // Send packet - this should not block the timer handler
