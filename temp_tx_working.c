@@ -839,6 +839,10 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STRT") == 0 || strcmp(cmd_upper, "START_TEST") == 0 || strcmp(cmd_upper, "START") == 0)
     {
+        // Debug: log START command received
+        test_run_info((unsigned char *)"[DBG] START command received");
+        snprintf(log_buf, sizeof(log_buf), "[DBG] configured=%d timer_init=%d", g_config.configured, g_timer_initialized);
+        test_run_info((unsigned char *)log_buf);
         
         if (!g_config.configured)
         {
@@ -871,6 +875,11 @@ static void parse_command(char *cmd)
         }
         if (period_ms < 1) period_ms = 1;
         if (period_ms > 1000) period_ms = 1000; // Cap at 1 second max
+        
+        // Debug: log timer period
+        snprintf(log_buf, sizeof(log_buf), "[DBG] Starting TX timer: period_ms=%lu pkt_rate_hz=%lu", 
+                 (unsigned long)period_ms, (unsigned long)g_config.pkt_rate_hz);
+        test_run_info((unsigned char *)log_buf);
         
         uint32_t err_code = app_timer_start(m_tx_timer_id, APP_TIMER_TICKS(period_ms), NULL);
 
@@ -961,6 +970,9 @@ static void parse_command(char *cmd)
     }
     else
     {
+        // Debug: log unknown command
+        snprintf(log_buf, sizeof(log_buf), "[DBG] Unknown command: '%s'", cmd_upper);
+        test_run_info((unsigned char *)log_buf);
         send_response("ERR UNKNOWN_CMD");
     }
 }

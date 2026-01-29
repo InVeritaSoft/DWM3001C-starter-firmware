@@ -476,6 +476,10 @@ static void send_response(const char *response)
     // CRITICAL: Turn off LED immediately - do NOT delay here as it blocks interrupt handler
     // The LED was already on during transmission, which is sufficient indication
     bsp_board_led_off(2);
+    
+    // Diagnostic: Log TX completion
+    snprintf(log_buf, sizeof(log_buf), "[DBG] TX complete: %lu bytes sent", (unsigned long)bytes_sent);
+    test_run_info((unsigned char *)log_buf);
 }
 
 /**
@@ -616,6 +620,11 @@ static void parse_command(char *cmd)
         return; // Empty command
     }
     
+    // Debug: log received command
+    char log_buf[128];
+    snprintf(log_buf, sizeof(log_buf), "[DBG] parse_command: '%s' (len=%lu)", cmd, (unsigned long)strlen(cmd));
+    test_run_info((unsigned char *)log_buf);
+    
     char cmd_upper[64];
     strncpy(cmd_upper, cmd, sizeof(cmd_upper) - 1);
     cmd_upper[sizeof(cmd_upper) - 1] = '\0';
@@ -627,15 +636,23 @@ static void parse_command(char *cmd)
             cmd_upper[i] = cmd_upper[i] - 'a' + 'A';
         }
     }
+    
+    // Debug: log uppercase command
+    snprintf(log_buf, sizeof(log_buf), "[DBG] cmd_upper: '%s'", cmd_upper);
+    test_run_info((unsigned char *)log_buf);
 
     if (strcmp(cmd_upper, "PNG") == 0 || strcmp(cmd_upper, "PING") == 0)
     {
+        test_run_info((unsigned char *)"[DBG] PNG received, sending OK response");
         send_response("OK");
+        test_run_info((unsigned char *)"[DBG] PNG response sent");
         return;
     }
     else if (strncmp(cmd_upper, "NODE_TYPE", 9) == 0)
     {
+        test_run_info((unsigned char *)"[DBG] NODE_TYPE command received");
         send_response("OK NODE_TYPE=RX_V2");
+        test_run_info((unsigned char *)"[DBG] NODE_TYPE response sent");
         return;
     }
     else if (strcmp(cmd_upper, "CFG") == 0 || strcmp(cmd_upper, "CONFIG") == 0 || strcmp(cmd_upper, "SET_CONFIG") == 0)
@@ -753,6 +770,10 @@ static void parse_command(char *cmd)
     }
     else
     {
+        // Debug: log unknown command
+        char log_buf[128];
+        snprintf(log_buf, sizeof(log_buf), "[DBG] Unknown command: '%s'", cmd_upper);
+        test_run_info((unsigned char *)log_buf);
         send_response("ERR UNKNOWN_CMD");
     }
 }
