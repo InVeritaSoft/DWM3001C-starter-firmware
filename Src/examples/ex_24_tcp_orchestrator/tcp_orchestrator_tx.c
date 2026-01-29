@@ -859,11 +859,15 @@ static void parse_command(char *cmd)
         // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
         // Only reset if explicitly requested via RESET_STATS command
         
-        // AGGRESSIVE FIX: Ensure DW3000 is in clean state before starting
+        // AGGRESSIVE FIX: Ensure DW3000 is properly configured and in clean state
+        // Reconfigure to ensure clean state (critical for TX success)
+        dwt_configure(&dwt_config);
+        configure_tx_power();
+        
         // Clear any pending status bits and force to IDLE
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff();
-        Sleep(5); // Small delay to ensure DW3000 is ready
+        Sleep(10); // Delay to ensure DW3000 is ready
         
         // Clear retransmission queue
         memset(g_retransmit_queue, 0, sizeof(g_retransmit_queue));
@@ -979,37 +983,14 @@ static void parse_command(char *cmd)
  */
 static void configure_uwb(void)
 {
-    // #region agent log
-    FILE *log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:971\",\"message\":\"configure_uwb entry\",\"data\":{\"chan\":%u,\"rate\":%u,\"pl\":%u,\"len\":%u},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"K\"}\n", dwt_config.chan, dwt_config.dataRate, dwt_config.txPreambLength, g_config.payload_len, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
-    
     if (dwt_configure(&dwt_config))
     {
-        // #region agent log
-        log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:975\",\"message\":\"CONFIG FAILED\",\"data\":{},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"L\"}\n", (unsigned long)0);
-            fclose(log_file);
-        }
-        // #endregion
         test_run_info((unsigned char *)"CONFIG FAILED");
         return;
     }
 
     configure_tx_power();
     g_stats.frame_duration_us = calculate_frame_duration_us();
-    
-    // #region agent log
-    log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:980\",\"message\":\"configure_uwb success\",\"data\":{\"frame_dur_us\":%u},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"M\"}\n", g_stats.frame_duration_us, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
 }
 
 /**
@@ -1097,46 +1078,6 @@ static void send_packet(void)
     const uint32_t max_timeout_ms = 20;
 
     g_stats.total_attempted++;
-    
-    // #region agent log
-    FILE *log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1067\",\"message\":\"send_packet entry\",\"data\":{\"attempted\":%lu,\"configured\":%u,\"chan\":%u,\"rate\":%u,\"pl\":%u,\"len\":%u},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\"}\n", (unsigned long)g_stats.total_attempted, g_config.configured, g_config.channel, g_config.data_rate, g_config.preamble_len, g_config.payload_len, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
-    
-    // AGGRESSIVE FIX: Always ensure DW3000 is in IDLE state before TX
-    // Don't skip transmission - force to IDLE and continue
-    uint8_t idle_before = dwt_checkidlerc();
-    uint32_t status_before = dwt_readsysstatuslo();
-    
-    // #region agent log
-    log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1070\",\"message\":\"DW3000 state check\",\"data\":{\"idle\":%u,\"status\":0x%08lX},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\"}\n", idle_before, (unsigned long)status_before, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
-    
-    if (!idle_before)
-    {
-        // DW3000 not ready - force to IDLE aggressively
-        dwt_forcetrxoff();
-        Sleep(2); // Longer delay to ensure IDLE state
-        
-        // Clear any error bits that might prevent TX
-        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-        
-        // #region agent log
-        log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-        if (log_file) {
-            uint8_t idle_after = dwt_checkidlerc();
-            fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1076\",\"message\":\"DW3000 recovery\",\"data\":{\"idle_before\":%u,\"idle_after\":%u},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\"}\n", idle_before, idle_after, (unsigned long)0);
-            fclose(log_file);
-        }
-        // #endregion
-    }
 
     // Prepare TCP-like packet
     g_tx_packet.seq = g_seq_num++;
@@ -1157,14 +1098,6 @@ static void send_packet(void)
     uint16_t data_len = header_len + g_config.payload_len;
     uint16_t frame_len = data_len + FCS_LEN;
     
-    // #region agent log
-    log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1097\",\"message\":\"Frame length calc\",\"data\":{\"header\":%u,\"payload\":%u,\"data\":%u,\"frame\":%u},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\"}\n", header_len, g_config.payload_len, data_len, frame_len, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
-    
     // Copy only the actual data length (not full structure with unused payload bytes)
     memcpy(g_tx_buffer, &g_tx_packet, data_len);
 
@@ -1172,48 +1105,20 @@ static void send_packet(void)
     dwt_writetxdata(data_len, g_tx_buffer, 0);
     dwt_writetxfctrl(frame_len, 0, 0);
 
-    // Ensure DW3000 is ready for transmission (matches ex_22_orchestrator_v2)
-    // Force to IDLE state AFTER writing data but BEFORE starting TX
-    dwt_forcetrxoff();
+    // Ensure DW3000 is ready for transmission (matches ex_22_orchestrator_v2 exactly)
+    // Simple approach: just force to IDLE and start TX immediately
+    dwt_forcetrxoff(); // Force to IDLE state if needed
     
-    uint32_t status_after_write = dwt_readsysstatuslo();
-    
-    // #region agent log
-    log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1119\",\"message\":\"After write data\",\"data\":{\"idle\":%u,\"status\":0x%08lX},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\"}\n", dwt_checkidlerc(), (unsigned long)status_after_write, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
-    
-    // AGGRESSIVE FIX: Clear status bits BEFORE starting TX (critical for preventing rejection)
-    // Old status bits (especially TXFRB/TXPRS from previous errors) can cause immediate rejection
-    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-    
-    // Small delay to ensure status bits are cleared and DW3000 is ready
-    // This is critical - without this delay, TX can be rejected immediately
-    Sleep(1);
-
-    // Start transmission
+    // Start transmission immediately (matches working ex_22_orchestrator_v2)
     dwt_starttx(DWT_START_TX_IMMEDIATE);
-    
-    // #region agent log
-    log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (log_file) {
-        uint32_t status_immediate = dwt_readsysstatuslo();
-        fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1147\",\"message\":\"After starttx\",\"data\":{\"status_immediate\":0x%08lX},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"G\"}\n", (unsigned long)status_immediate, (unsigned long)0);
-        fclose(log_file);
-    }
-    // #endregion
 
     // Poll for TX complete with timeout to prevent blocking timer handler
     // Use manual polling instead of waitforsysstatus to allow timeout
-    // Check for both success (TXFRS) and error conditions (TXFRB, TXPRS)
+    // Match working ex_22_orchestrator_v2 - only check for TXFRS (success), not errors
     status_reg = dwt_readsysstatuslo();
-    uint32_t tx_error_mask = DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
     
     // Poll with timeout, but check g_test_running frequently to allow STOP command to be processed
-    while (!(status_reg & (DWT_INT_TXFRS_BIT_MASK | tx_error_mask)) && timeout_count < max_timeout_ms)
+    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
     {
         // Check if test was stopped - exit early to allow STOP command processing
         if (!g_test_running)
@@ -1230,7 +1135,7 @@ static void send_packet(void)
         status_reg = dwt_readsysstatuslo();
     }
 
-    // Check for TX success
+    // Check for TX success (matches working ex_22_orchestrator_v2)
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
         // Clear TX frame sent event
@@ -1240,98 +1145,64 @@ static void send_packet(void)
         g_stats.last_error = 0;
         g_consecutive_errors = 0; // Reset consecutive error counter on success
         
-        // #region agent log
-        log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1174\",\"message\":\"TX SUCCESS\",\"data\":{\"status\":0x%08lX,\"timeout_count\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H\"}\n", (unsigned long)status_reg, (unsigned long)timeout_count, (unsigned long)0);
-            fclose(log_file);
-        }
-        // #endregion
-        
         // Add to retransmission queue if TCP mode enabled
         if (g_config.tcp_mode)
         {
             add_to_retransmit_queue(g_tx_packet.seq, g_tx_buffer, data_len);
         }
     }
-    // Check for TX errors
-    else if (status_reg & tx_error_mask)
+    else
     {
-        // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
-        g_stats.tx_errors++;
-        g_consecutive_errors++;
-        uint8_t error_type = 0;
-        if (status_reg & DWT_INT_TXFRB_BIT_MASK)
+        // Timeout or error occurred (matches working ex_22_orchestrator_v2)
+        // Check status register for specific error types
+        uint32_t tx_error_mask = DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
+        
+        if (timeout_count >= max_timeout_ms)
         {
-            g_stats.last_error = 3; // TX frame rejected
-            error_type = 3;
+            g_stats.tx_timeouts++;
+            g_stats.last_error = 2; // TX timeout error
         }
-        else if (status_reg & DWT_INT_TXPRS_BIT_MASK)
+        else if (status_reg & tx_error_mask)
         {
-            g_stats.last_error = 4; // TX preamble rejected
-            error_type = 4;
+            // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
+            g_stats.tx_errors++;
+            g_consecutive_errors++;
+            
+            if (status_reg & DWT_INT_TXFRB_BIT_MASK)
+            {
+                g_stats.last_error = 3; // TX frame rejected
+            }
+            else if (status_reg & DWT_INT_TXPRS_BIT_MASK)
+            {
+                g_stats.last_error = 4; // TX preamble rejected
+            }
+            else
+            {
+                g_stats.last_error = 1; // General TX error
+            }
+            
+            // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
+            if (g_consecutive_errors >= 10)
+            {
+                // Force to IDLE first
+                dwt_forcetrxoff();
+                Sleep(10); // Longer delay for recovery
+                
+                // Reconfigure DW3000 to reset its state
+                dwt_configure(&dwt_config);
+                configure_tx_power();
+                
+                // Reset consecutive error counter
+                g_consecutive_errors = 0;
+            }
         }
         else
         {
+            g_stats.tx_errors++;
             g_stats.last_error = 1; // General TX error
-            error_type = 1;
         }
         
-        // #region agent log
-        log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1189\",\"message\":\"TX ERROR\",\"data\":{\"status\":0x%08lX,\"error_type\":%u,\"TXFRB\":%u,\"TXPRS\":%u,\"timeout_count\":%lu,\"consecutive_errors\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"I\"}\n", (unsigned long)status_reg, error_type, (status_reg & DWT_INT_TXFRB_BIT_MASK) ? 1 : 0, (status_reg & DWT_INT_TXPRS_BIT_MASK) ? 1 : 0, (unsigned long)timeout_count, (unsigned long)g_consecutive_errors, (unsigned long)0);
-            fclose(log_file);
-        }
-        // #endregion
-        
-        // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
-        // This helps recover from bad state that might prevent TX
-        if (g_consecutive_errors >= 10)
-        {
-            // #region agent log
-            log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-            if (log_file) {
-                fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1206\",\"message\":\"AGGRESSIVE RECOVERY: Reconfiguring DW3000\",\"data\":{\"consecutive_errors\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"N\"}\n", (unsigned long)g_consecutive_errors, (unsigned long)0);
-                fclose(log_file);
-            }
-            // #endregion
-            
-            // Force to IDLE first
-            dwt_forcetrxoff();
-            Sleep(10); // Longer delay for recovery
-            
-            // Reconfigure DW3000 to reset its state
-            dwt_configure(&dwt_config);
-            configure_tx_power();
-            
-            // Reset consecutive error counter
-            g_consecutive_errors = 0;
-        }
-        
-        // Clear error bits and force to IDLE
-        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-        dwt_forcetrxoff(); // Force to IDLE state to recover
-        
-        // Small delay to allow DW3000 to recover from error state
-        // This helps prevent rapid-fire errors that could overwhelm the chip
-        Sleep(1);
-    }
-    // Timeout occurred
-    else
-    {
-        g_stats.tx_timeouts++;
-        g_stats.last_error = 2; // TX timeout error
-        
-        // #region agent log
-        log_file = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-        if (log_file) {
-            fprintf(log_file, "{\"location\":\"tcp_orchestrator_tx.c:1215\",\"message\":\"TX TIMEOUT\",\"data\":{\"status\":0x%08lX,\"timeout_count\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"J\"}\n", (unsigned long)status_reg, (unsigned long)timeout_count, (unsigned long)0);
-            fclose(log_file);
-        }
-        // #endregion
-        
-        // Clear any pending status bits and force to IDLE (matches ex_22_orchestrator_v2 - no extra delay)
+        // Clear any pending status bits and force to IDLE (matches ex_22_orchestrator_v2)
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff(); // Force to IDLE state to recover
     }
