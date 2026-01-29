@@ -497,10 +497,33 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
   router.post("/nodes/:nodeId/stop", async (req, res) => {
     try {
       const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+
+      // Check if node is connected
+      if (!node.isConnected()) {
+        return res.status(400).json({
+          error: `Node ${req.params.nodeId} is not connected. Please connect the node first.`,
+          details: {
+            nodeId: req.params.nodeId,
+            connected: false,
+            state: node.getState(),
+          },
+        });
+      }
+
       const result = await node.stopTest();
       res.json({ success: result });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      // Provide detailed error information
+      const errorMessage = error.message || String(error);
+      res.status(500).json({
+        error: `Failed to stop Node ${req.params.nodeId}: ${errorMessage}`,
+        details: {
+          nodeId: req.params.nodeId,
+          connected: node.isConnected(),
+          state: node.getState(),
+          lastError: node.lastError,
+        },
+      });
     }
   });
 

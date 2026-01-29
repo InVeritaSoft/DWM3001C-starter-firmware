@@ -132,10 +132,34 @@ export default function Dashboard() {
 
       const errors = [];
       if (resultA.status === "rejected") {
-        errors.push(`Node A: ${resultA.reason?.message || resultA.reason}`);
+        const errorMsg =
+          resultA.reason?.response?.data?.error ||
+          resultA.reason?.response?.data?.message ||
+          resultA.reason?.message ||
+          String(resultA.reason);
+        const errorDetails = resultA.reason?.response?.data?.details
+          ? `\nDetails: ${JSON.stringify(resultA.reason.response.data.details, null, 2)}`
+          : "";
+        errors.push(`Node A: ${errorMsg}${errorDetails}`);
+        console.error(
+          "Node A stop error:",
+          resultA.reason?.response?.data || resultA.reason,
+        );
       }
       if (resultB.status === "rejected") {
-        errors.push(`Node B: ${resultB.reason?.message || resultB.reason}`);
+        const errorMsg =
+          resultB.reason?.response?.data?.error ||
+          resultB.reason?.response?.data?.message ||
+          resultB.reason?.message ||
+          String(resultB.reason);
+        const errorDetails = resultB.reason?.response?.data?.details
+          ? `\nDetails: ${JSON.stringify(resultB.reason.response.data.details, null, 2)}`
+          : "";
+        errors.push(`Node B: ${errorMsg}${errorDetails}`);
+        console.error(
+          "Node B stop error:",
+          resultB.reason?.response?.data || resultB.reason,
+        );
       }
 
       if (errors.length > 0) {
@@ -147,7 +171,12 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error("Failed to stop test:", error);
-      showError(`Failed to stop test: ${error.message || error}`);
+      const errorMsg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        String(error);
+      showError(`Failed to stop test: ${errorMsg}`);
     }
   };
 

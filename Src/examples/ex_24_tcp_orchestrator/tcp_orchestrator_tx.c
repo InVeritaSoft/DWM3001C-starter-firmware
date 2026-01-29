@@ -922,6 +922,9 @@ static void parse_command(char *cmd)
         
         // Reset TX in progress flag in case it was stuck (non-blocking)
         g_tx_in_progress = 0;
+        
+        // ORANGE LED: Turn off when test stops
+        bsp_board_led_off(1);
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
@@ -1111,6 +1114,9 @@ static void send_packet(void)
     // Simple approach: just force to IDLE and start TX immediately
     dwt_forcetrxoff(); // Force to IDLE state if needed
     
+    // ORANGE LED: Turn on to indicate UWB packet transmission starting
+    bsp_board_led_on(1);
+    
     // Start transmission immediately (matches working ex_22_orchestrator_v2)
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
@@ -1128,6 +1134,8 @@ static void send_packet(void)
             // Force to IDLE and clear flag
             dwt_forcetrxoff();
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+            // ORANGE LED: Turn off when test stops
+            bsp_board_led_off(1);
             g_tx_in_progress = 0;
             return;
         }
@@ -1146,6 +1154,9 @@ static void send_packet(void)
         g_stats.last_tx_timestamp = dwt_readsystimestamphi32();
         g_stats.last_error = 0;
         g_consecutive_errors = 0; // Reset consecutive error counter on success
+        
+        // ORANGE LED: Turn off after successful transmission
+        bsp_board_led_off(1);
         
         // Add to retransmission queue if TCP mode enabled
         if (g_config.tcp_mode)
@@ -1207,6 +1218,9 @@ static void send_packet(void)
         // Clear any pending status bits and force to IDLE (matches ex_22_orchestrator_v2)
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         dwt_forcetrxoff(); // Force to IDLE state to recover
+        
+        // ORANGE LED: Turn off after error/timeout
+        bsp_board_led_off(1);
     }
     
     // Clear TX in progress flag
