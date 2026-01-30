@@ -180,6 +180,10 @@ static uint32_t g_last_stop_tick = 0;           // Tick when we last saw a STOP 
 static uint8_t g_stop_seen_recent = 0;          // 1 if we saw STOP recently (within STOP_CONFIRM_TICKS)
 #define STOP_CONFIRM_TICKS 50  // ~500ms at 100Hz; second STOP must arrive within this to confirm
 
+// Defer TX to main loop: timer runs in SWI (interrupt) context and must not call send_packet()
+// (send_packet uses Sleep(1)); main loop processes UART and calls send_packet() when flag set
+static volatile uint8_t g_tx_pending = 0;
+
 /* Retransmission queue */
 static retransmit_entry_t g_retransmit_queue[RETRANSMIT_QUEUE_SIZE];
 static uint8_t g_queue_head = 0;
@@ -1037,14 +1041,13 @@ static void configure_uwb(void)
 
 /**
  * TX timer handler
- * CRITICAL: Do NOT call process_pending_command() here. send_response() uses Sleep(1) and
- * nrf_delay_ms(1) which must only run from main loop context. Calling from timer (interrupt)
- * context can block the system or leave UART TX stuck (pin blocked / no more data out).
- * Command processing runs only in the main loop (Sleep(1) so ~1000/sec).
+ * CRITICAL: Runs in SWI (interrupt) context. Do NOT call send_packet() or process_pending_command()
+ * here — they use Sleep(1)/send_response() which must only run from main loop. We only set
+ * g_tx_pending; the main loop calls send_packet() so UART and main loop keep running.
  */
 static void tx_timer_handler(void *p_context)
 {
-    // Always check if test is running - don't block timer if test stopped
+    // Always check if test is running - don't set pending if test stopped
     if (!g_test_running)
     {
         g_stuck_ticks = 0;
@@ -1055,87 +1058,54 @@ static void tx_timer_handler(void *p_context)
     // Increment tick count for STOP guard (only when test is running)
     g_timer_tick_count++;
     
-    // ADDITIONAL SAFETY: Check if send_packet() has stopped being called
-    // If total_attempted hasn't changed for several ticks, force recovery
+    // ADDITIONAL SAFETY: Check if send_packet() has stopped being called (main loop not draining g_tx_pending)
     if (g_stats.total_attempted == g_last_attempted_count)
     {
         g_stuck_ticks++;
         if (g_stuck_ticks > STUCK_MAX_TICKS)
         {
-            // send_packet() hasn't been called successfully for too long - force recovery
-            // Clear g_tx_in_progress to unblock transmission
             g_tx_in_progress = 0;
             g_tx_in_progress_ticks = 0;
-            // Force DW3000 to IDLE state to ensure clean recovery
             dwt_forcetrxoff();
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-            // Reset stuck counter - we'll check again after calling send_packet()
             g_stuck_ticks = 0;
         }
     }
     else
     {
-        // total_attempted changed - reset stuck counter
         g_stuck_ticks = 0;
         g_last_attempted_count = g_stats.total_attempted;
     }
     
-    // SAFETY MECHANISM: If g_tx_in_progress has been set for too long, clear it
-    // This prevents the flag from getting stuck if send_packet() crashes or hangs
+    // If g_tx_in_progress has been set for too long, clear it (main loop send_packet() may be stuck)
     if (g_tx_in_progress)
     {
         g_tx_in_progress_ticks++;
-        
         if (g_tx_in_progress_ticks > TX_IN_PROGRESS_MAX_TICKS)
         {
-            // TX has been in progress for too long - clear the flag to unblock transmission
-            // This is a safety mechanism to prevent permanent blocking
-            // Force DW3000 to IDLE state first to ensure clean recovery
             dwt_forcetrxoff();
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-            // Clear flag and reset counter - this will allow send_packet() to be called below
             g_tx_in_progress = 0;
             g_tx_in_progress_ticks = 0;
-            // Continue to call send_packet() below to resume transmission
         }
         else
         {
-            // Previous TX still in progress - skip this timer tick to prevent blocking
-            return;
+            return; // Still in progress - main loop will clear it; don't set pending this tick
         }
     }
     else
     {
-        // TX not in progress - reset counter
         g_tx_in_progress_ticks = 0;
     }
     
-    // CRITICAL: At this point, g_tx_in_progress must be 0, so we can safely call send_packet()
-    // This ensures transmission continues even after errors or watchdog recovery
-    
-    // BULLETPROOF FAILSAFE: Double-check that test is still running before calling send_packet()
-    // This prevents any edge cases where g_test_running might have changed
     if (!g_test_running)
-    {
-        return; // Test stopped - don't send packets
-    }
+        return;
     
-    // CRITICAL FIX: Removed window size blocking for continuous transmission
-    // The window check was blocking transmission when window was full (10 packets)
-    // This caused transmission to stop after ~10 packets, making it feel "static"
-    // For continuous testing, we allow transmission regardless of window state
-    // Window tracking is still maintained for statistics, but doesn't block TX
     if (g_config.tcp_mode && g_stats.packets_in_flight >= g_config.window_size)
-    {
-        // Window full - track missing ACKs for statistics
         g_stats.acks_missing++;
-        // Continue transmission anyway to maintain continuous flow
-    }
     
-    // BULLETPROOF: Always call send_packet() if we reach here
-    // send_packet() has internal checks and will exit early if needed
-    // This ensures transmission NEVER stops as long as g_test_running is true
-    send_packet();
+    // Defer actual TX to main loop (do NOT call send_packet() from interrupt context)
+    g_tx_pending = 1;
 }
 
 /**
@@ -1571,10 +1541,17 @@ int tcp_orchestrator_tx(void)
     
     while (1)
     {
-        // Drain all queued UART commands so STAT/STATS get responses even if multiple arrived during send_response()
+        // Drain all queued UART commands first so STAT/STOP get responses immediately
         while (g_pending_cmd_ready)
         {
             process_pending_command();
+        }
+        
+        // Run TX from main loop when timer set g_tx_pending (timer runs in SWI, must not call send_packet/Sleep)
+        if (g_test_running && g_tx_pending)
+        {
+            g_tx_pending = 0;
+            send_packet();
         }
         
         // Process UWB RX (for ACK packets) - only if DW3000 is ready
@@ -1589,7 +1566,6 @@ int tcp_orchestrator_tx(void)
             }
         }
         
-        /* 1ms so we poll for pending STAT/STOP every 1ms even when timer is busy in send_packet() */
         Sleep(1);
     }
 }
