@@ -1025,6 +1025,9 @@ static void configure_uwb(void)
  */
 static void tx_timer_handler(void *p_context)
 {
+    // Process queued UART commands every tick so STAT/STATS get responses even when main loop is starved
+    process_pending_command();
+    
     // Always check if test is running - don't block timer if test stopped
     if (!g_test_running)
     {
