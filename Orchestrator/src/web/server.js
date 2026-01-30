@@ -150,6 +150,20 @@ class WebServer {
     // Node A events
     this.nodeA.on("stateChange", (data) => {
       this.io.emit("nodeStateChange", { node: "A", ...data });
+      // Also emit status update for compatibility
+      this.io.emit("status", {
+        nodeA: {
+          state: this.nodeA.getState(),
+          connected: this.nodeA.isConnected(),
+          lastError: this.nodeA.getLastError(),
+        },
+        nodeB: {
+          state: this.nodeB.getState(),
+          connected: this.nodeB.isConnected(),
+          lastError: this.nodeB.getLastError(),
+        },
+        testRunning: this.testRunner.isRunning,
+      });
     });
 
     this.nodeA.on("statsUpdated", (stats) => {
@@ -159,6 +173,20 @@ class WebServer {
     // Node B events
     this.nodeB.on("stateChange", (data) => {
       this.io.emit("nodeStateChange", { node: "B", ...data });
+      // Also emit status update for compatibility
+      this.io.emit("status", {
+        nodeA: {
+          state: this.nodeA.getState(),
+          connected: this.nodeA.isConnected(),
+          lastError: this.nodeA.getLastError(),
+        },
+        nodeB: {
+          state: this.nodeB.getState(),
+          connected: this.nodeB.isConnected(),
+          lastError: this.nodeB.getLastError(),
+        },
+        testRunning: this.testRunner.isRunning,
+      });
     });
 
     this.nodeB.on("statsUpdated", (stats) => {

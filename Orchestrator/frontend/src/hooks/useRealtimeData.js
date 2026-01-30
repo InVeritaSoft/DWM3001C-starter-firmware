@@ -125,6 +125,17 @@ export function useRealtimeData() {
       }
     };
 
+    // Node state change handler - update status in real-time
+    const handleNodeStateChange = (data) => {
+      setStatus((prev) => ({
+        ...prev,
+        [data.node === "A" ? "nodeA" : "nodeB"]: {
+          ...prev?.[data.node === "A" ? "nodeA" : "nodeB"],
+          state: data.newState,
+        },
+      }));
+    };
+
     // Subscribe to events
     socketService.on("status", handleStatus);
     socketService.on("stats", handleStats);
@@ -133,6 +144,7 @@ export function useRealtimeData() {
     socketService.on("error", handleError);
     socketService.on("testStarted", handleTestStarted);
     socketService.on("testStopped", handleTestStopped);
+    socketService.on("nodeStateChange", handleNodeStateChange);
 
     // Initial status
     socketService.on("status", handleStatus);
@@ -146,6 +158,7 @@ export function useRealtimeData() {
       socketService.off("error", handleError);
       socketService.off("testStarted", handleTestStarted);
       socketService.off("testStopped", handleTestStopped);
+      socketService.off("nodeStateChange", handleNodeStateChange);
     };
   }, [stats]);
 
