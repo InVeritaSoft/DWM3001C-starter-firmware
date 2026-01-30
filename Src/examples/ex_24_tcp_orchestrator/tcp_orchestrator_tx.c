@@ -160,7 +160,8 @@ static dwt_txconfig_t g_tx_config; // TX power configuration
 
 // Safety mechanism: Track timer ticks since g_tx_in_progress was set to detect stuck state
 static volatile uint32_t g_tx_in_progress_ticks = 0;
-#define TX_IN_PROGRESS_MAX_TICKS 10  // If TX in progress for >10 timer ticks (~100ms at 100Hz), something is wrong
+#define TX_IN_PROGRESS_MAX_TICKS 5  // If TX in progress for >5 timer ticks (~50ms at 100Hz), something is wrong
+// Reduced from 10 to 5 for faster recovery from stuck states
 static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for recovery
 
 /* Retransmission queue */
@@ -1011,11 +1012,13 @@ static void tx_timer_handler(void *p_context)
         {
             // TX has been in progress for too long - clear the flag to unblock transmission
             // This is a safety mechanism to prevent permanent blocking
-            g_tx_in_progress = 0;
-            g_tx_in_progress_ticks = 0;
-            // Force DW3000 to IDLE state to recover
+            // Force DW3000 to IDLE state first to ensure clean recovery
             dwt_forcetrxoff();
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+            // Clear flag and reset counter - this will allow send_packet() to be called below
+            g_tx_in_progress = 0;
+            g_tx_in_progress_ticks = 0;
+            // Continue to call send_packet() below to resume transmission
         }
         else
         {
@@ -1028,6 +1031,9 @@ static void tx_timer_handler(void *p_context)
         // TX not in progress - reset counter
         g_tx_in_progress_ticks = 0;
     }
+    
+    // CRITICAL: At this point, g_tx_in_progress must be 0, so we can safely call send_packet()
+    // This ensures transmission continues even after errors or watchdog recovery
     
     // CRITICAL FIX: Removed window size blocking for continuous transmission
     // The window check was blocking transmission when window was full (10 packets)
