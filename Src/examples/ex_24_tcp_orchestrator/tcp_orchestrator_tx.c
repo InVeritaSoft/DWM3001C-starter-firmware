@@ -907,13 +907,14 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
-        // Send response IMMEDIATELY to prevent timeout (before any cleanup that might take time)
-        send_response("OK STOP");
-        
-        // Stop test running flag to prevent timer handler from starting new TX
+        // CRITICAL: Set g_test_running = 0 FIRST to allow send_packet() to exit early
+        // This must happen before send_response() to ensure send_packet() polling loop can exit
         g_test_running = 0;
         
-        // Stop timers immediately
+        // Reset TX in progress flag immediately to allow send_packet() to exit
+        g_tx_in_progress = 0;
+        
+        // Stop timers immediately to prevent new TX attempts
         app_timer_stop(m_tx_timer_id);
         app_timer_stop(m_ack_timeout_timer_id);
         
@@ -923,13 +924,13 @@ static void parse_command(char *cmd)
         // Clear any pending status bits
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
         
-        // Reset TX in progress flag in case it was stuck (non-blocking)
-        g_tx_in_progress = 0;
-        
         // ORANGE LED: Turn off when test stops
         bsp_board_led_off(1);
         // GREEN LED: Turn off when test stops
         bsp_board_led_off(2);
+        
+        // Send response AFTER cleanup to ensure UART is ready
+        send_response("OK STOP");
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
@@ -1242,7 +1243,8 @@ static void send_packet(void)
         bsp_board_led_off(2);
     }
     
-    // Clear TX in progress flag
+    // CRITICAL: Always clear TX in progress flag at end of function
+    // This ensures timer can fire again even if there was an error
     g_tx_in_progress = 0;
 }
 

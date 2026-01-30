@@ -312,8 +312,9 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      // Node B needs longer timeout
-      const timeout = this.nodeId === "B" ? 8000 : 5000;
+      // Node A needs longer timeout because send_packet() might be blocking
+      // Node B also needs longer timeout
+      const timeout = this.nodeId === "A" ? 10000 : 8000;
       const response = await this.rs485Comm.stopTest(timeout);
       if (response.startsWith("OK STOP")) {
         this.setState(NodeState.STOPPED);
