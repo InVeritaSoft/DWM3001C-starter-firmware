@@ -1136,6 +1136,10 @@ static void send_packet(void)
     // Simple approach: just force to IDLE and start TX immediately
     dwt_forcetrxoff(); // Force to IDLE state if needed
     
+    // CRITICAL FIX: Small delay to ensure DW3000 transitions to IDLE state
+    // Without this delay, TX frame rejection can occur if DW3000 isn't ready
+    Sleep(1); // Small delay to ensure IDLE state
+    
     // CRITICAL FIX: Clear any stale interrupt bits BEFORE starting TX
     // Old interrupt bits from previous TX can cause false detection
     dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
