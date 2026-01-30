@@ -171,6 +171,11 @@ static volatile uint32_t g_stuck_ticks = 0;
 // Aggressive: catches cases where send_packet() completes but stops being called
 static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for recovery
 
+// STOP guard: ignore STOP received within this many timer ticks of START (filters RS485 noise/echo)
+static volatile uint32_t g_timer_tick_count = 0; // Incremented by timer when test is running
+static uint32_t g_start_tick = 0;               // Tick count when START was received
+#define STOP_GUARD_TICKS 5  // At 100Hz ~50ms; ignore STOP in first 50ms after START
+
 /* Retransmission queue */
 static retransmit_entry_t g_retransmit_queue[RETRANSMIT_QUEUE_SIZE];
 static uint8_t g_queue_head = 0;
@@ -427,8 +432,8 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                         
                         // ORANGE LED: RX - Complete command received
                         bsp_board_led_on(1);
-                        // Reduced delay from 100ms to 50ms to minimize blocking in interrupt handler
-                        nrf_delay_ms(50);  // Shorter blink for complete command
+                        // Minimal delay in interrupt: long blocks can starve timer and cause TX freeze
+                        nrf_delay_ms(2);
                         bsp_board_led_off(1);
                         
                         // Turn off green LED after command is parsed
@@ -877,6 +882,7 @@ static void parse_command(char *cmd)
         }
         
         g_test_running = 1;
+        g_start_tick = g_timer_tick_count; // For STOP guard: ignore STOP in first STOP_GUARD_TICKS
         g_seq_num = 0;
         g_consecutive_errors = 0; // Reset consecutive error counter on START
         // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
@@ -918,6 +924,15 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
+        // STOP guard: ignore spurious STOP within STOP_GUARD_TICKS of START (RS485 noise/echo)
+        // Log evidence: TX stats freeze when g_test_running=0; only STOP clears it.
+        uint32_t elapsed = (g_timer_tick_count >= g_start_tick)
+            ? (g_timer_tick_count - g_start_tick) : 0;
+        if (elapsed < STOP_GUARD_TICKS)
+        {
+            // No response - avoid corrupting next command (STATS) on the wire
+            return;
+        }
         // Match working ex_22_orchestrator_v2 pattern: simple and fast
         g_test_running = 0;
         app_timer_stop(m_tx_timer_id);
@@ -1010,6 +1025,9 @@ static void tx_timer_handler(void *p_context)
         g_last_attempted_count = 0;
         return;
     }
+    
+    // Increment tick count for STOP guard (only when test is running)
+    g_timer_tick_count++;
     
     // ADDITIONAL SAFETY: Check if send_packet() has stopped being called
     // If total_attempted hasn't changed for several ticks, force recovery
