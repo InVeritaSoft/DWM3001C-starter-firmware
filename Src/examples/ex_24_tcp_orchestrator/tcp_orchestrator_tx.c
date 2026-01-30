@@ -1136,6 +1136,10 @@ static void send_packet(void)
     // Simple approach: just force to IDLE and start TX immediately
     dwt_forcetrxoff(); // Force to IDLE state if needed
     
+    // CRITICAL FIX: Clear any stale interrupt bits BEFORE starting TX
+    // Old interrupt bits from previous TX can cause false detection
+    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+    
     // ORANGE LED: Turn on to indicate UWB packet transmission starting
     bsp_board_led_on(1);
     // GREEN LED: Turn on to indicate UWB exchange (packet transmission)
@@ -1145,14 +1149,16 @@ static void send_packet(void)
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
     // CRITICAL FIX: Read status AFTER starting TX, not before
-    // Also add small delay to allow TX to start before polling
+    // Add small delay to allow TX to start before polling
     Sleep(1); // Small delay to allow TX to start
+    
+    // CRITICAL FIX: Check both TXFRS (success) and error bits to detect completion
+    uint32_t tx_complete_mask = DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
     status_reg = dwt_readsysstatuslo();
     
     // Poll with timeout, but check g_test_running frequently to allow STOP command to be processed
-    // CRITICAL FIX: Check both TXFRS (success) and error bits to detect completion
-    uint32_t tx_complete_mask = DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
-    while (!(status_reg & tx_complete_mask) && timeout_count < max_timeout_ms)
+    // CRITICAL FIX: Use do-while to ensure we check status at least once after starting TX
+    do
     {
         // Check if test was stopped - exit early to allow STOP command processing
         if (!g_test_running)
@@ -1168,10 +1174,18 @@ static void send_packet(void)
             return;
         }
         
+        // Read status register - check for any completion (success or error)
+        status_reg = dwt_readsysstatuslo();
+        
+        // If TX completed (success or error), exit loop
+        if (status_reg & tx_complete_mask)
+        {
+            break;
+        }
+        
         Sleep(1); // Sleep 1ms
         timeout_count++;
-        status_reg = dwt_readsysstatuslo();
-    }
+    } while (timeout_count < max_timeout_ms);
 
     // Check for TX success (matches working ex_22_orchestrator_v2)
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
