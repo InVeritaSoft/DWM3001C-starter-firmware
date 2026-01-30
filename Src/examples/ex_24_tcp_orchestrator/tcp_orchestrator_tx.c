@@ -1255,7 +1255,8 @@ static void send_packet(void)
             g_tx_in_progress_ticks = 0;
             return;
         }
-        
+        /* Process UART commands while waiting for UWB TX so STAT/RST get responses even when main loop is starved by timer (log evidence: COM21 no line-received until much later) */
+        process_pending_command();
         Sleep(1); // Sleep 1ms
         timeout_count++;
         status_reg = dwt_readsysstatuslo();

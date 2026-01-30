@@ -377,6 +377,25 @@ export class NodeController extends EventEmitter {
       }
     } catch (error) {
       this.lastError = error.message;
+      // #region agent log
+      try {
+        const fs = await import("fs");
+        const logPath =
+          "c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log";
+        fs.appendFileSync(
+          logPath,
+          JSON.stringify({
+            location: "nodeController.js:getStats-catch",
+            message: "getStats-error",
+            data: { nodeId: this.nodeId, error: error.message },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            runId: "run1",
+            hypothesisId: "H1",
+          }) + "\n",
+        );
+      } catch (_) {}
+      // #endregion
       throw error;
     }
   }

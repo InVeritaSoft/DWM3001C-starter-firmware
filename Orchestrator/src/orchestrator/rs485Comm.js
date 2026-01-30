@@ -1,6 +1,10 @@
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "serialport";
 import { EventEmitter } from "events";
+import { appendFileSync } from "fs";
+
+const DEBUG_LOG_PATH =
+  "c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log";
 
 /**
  * Custom error class for corrupted responses that should be retried
@@ -60,6 +64,26 @@ export class RS485Comm extends EventEmitter {
       this.parser.on("data", (data) => {
         const timestamp = Date.now();
         const trimmed = data.toString().trim();
+        // #region agent log
+        try {
+          appendFileSync(
+            DEBUG_LOG_PATH,
+            JSON.stringify({
+              location: "rs485Comm.js:parser-data",
+              message: "rs485-line-received",
+              data: {
+                port: this.port,
+                lineLength: trimmed.length,
+                preview: trimmed.substring(0, 80),
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              runId: "run1",
+              hypothesisId: "H5",
+            }) + "\n",
+          );
+        } catch (_) {}
+        // #endregion
         // Always log RX for debugging (not just when DEBUG_RS485 is set)
         console.log(`[RS485 RX] ${this.port}: ${trimmed}`);
         console.log(
@@ -312,6 +336,31 @@ export class RS485Comm extends EventEmitter {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
 
+        // #region agent log
+        try {
+          const lastDataReceivedAge = this.lastDataReceived
+            ? Date.now() - this.lastDataReceived
+            : null;
+          appendFileSync(
+            DEBUG_LOG_PATH,
+            JSON.stringify({
+              location: "rs485Comm.js:timeout",
+              message: "rs485-timeout",
+              data: {
+                port: this.port,
+                command,
+                timeout,
+                lastDataReceivedAge,
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              runId: "run1",
+              hypothesisId: "H4",
+            }) + "\n",
+          );
+        } catch (_) {}
+        // #endregion
+
         // Log pending commands for debugging
         const pendingCount = this.pendingCommands.size;
         const pendingIds = Array.from(this.pendingCommands.keys());
@@ -372,6 +421,23 @@ export class RS485Comm extends EventEmitter {
       }, timeout);
 
       this.pendingCommands.set(commandId, { resolve, reject, timer, command });
+
+      // #region agent log
+      try {
+        appendFileSync(
+          DEBUG_LOG_PATH,
+          JSON.stringify({
+            location: "rs485Comm.js:sendCommand",
+            message: "rs485-write-started",
+            data: { port: this.port, command },
+            timestamp: Date.now(),
+            sessionId: "debug-session",
+            runId: "run1",
+            hypothesisId: "H3",
+          }) + "\n",
+        );
+      } catch (_) {}
+      // #endregion
 
       // Write command to serial port and ensure drain completes before continuing
       // Always log TX for debugging (not just when DEBUG_RS485 is set)
@@ -671,6 +737,26 @@ export class RS485Comm extends EventEmitter {
 
         // Response is clean (or corruption < 10%), process normally
         if (cleanedData.toUpperCase().startsWith("OK")) {
+          // #region agent log
+          try {
+            appendFileSync(
+              DEBUG_LOG_PATH,
+              JSON.stringify({
+                location: "rs485Comm.js:handleResponse",
+                message: "rs485-response-resolved",
+                data: {
+                  port: this.port,
+                  responseLength: cleanedData.length,
+                  preview: cleanedData.substring(0, 80),
+                },
+                timestamp: Date.now(),
+                sessionId: "debug-session",
+                runId: "run1",
+                hypothesisId: "H2",
+              }) + "\n",
+            );
+          } catch (_) {}
+          // #endregion
           pending.resolve(cleanedData);
         } else {
           pending.reject(new Error(cleanedData));
