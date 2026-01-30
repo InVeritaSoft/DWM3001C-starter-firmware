@@ -172,6 +172,40 @@
   padding-bottom: 0.5rem;
 }
 
+.report-header-indicator {
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.report-status-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.report-status-badge.running {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #2196f3;
+  animation: pulse 2s infinite;
+}
+
+.report-status-badge.stopped {
+  background-color: #e8f5e9;
+  color: #388e3c;
+  border: 1px solid #4caf50;
+}
+
+.report-loading {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+}
+
 .report-content {
   display: flex;
   flex-direction: column;

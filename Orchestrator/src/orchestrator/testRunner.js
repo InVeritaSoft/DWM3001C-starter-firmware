@@ -289,50 +289,75 @@ export class TestRunner extends EventEmitter {
       const configA = this.nodeA.getConfig();
       const configB = this.nodeB.getConfig();
 
+      // Ensure CSV file exists before logging
+      // This handles cases where polling starts before createLogFile() is called
+      if (!this.csvLogger.csvWriter && test && test.run_name) {
+        try {
+          this.csvLogger.createLogFile(test.run_name);
+        } catch (error) {
+          console.warn("[TestRunner] Failed to create CSV log file:", error.message);
+          // Continue without CSV logging - it's optional
+        }
+      }
+
       // Log Node A data (TX node - has total_sent, last_error)
       if (statsA) {
-        await this.csvLogger.logData({
-          timestamp: new Date().toISOString(),
-          run_name: test.run_name,
-          node_id: "A",
-          link_distance_m: test.d_link,
-          env_type: test.env_type,
-          channel: configA?.channel || test.config.channel,
-          data_rate: configA?.data_rate || test.config.data_rate,
-          tx_power_idx: configA?.tx_power_idx || test.config.tx_power_idx,
-          pkt_rate_hz: configA?.pkt_rate_hz || test.config.pkt_rate_hz,
-          jammer_label: test.jammer_label,
-          // Node A is TX - map TX stats to CSV schema
-          // total_sent represents packets sent (conceptually similar to total_rx)
-          total_rx: statsA.total_sent || 0, // Map total_sent to total_rx for CSV
-          lost_pkts: 0, // Node A doesn't track lost packets (that's Node B's job)
-          crc_err: statsA.last_error || 0, // Map last_error to crc_err for CSV
-          rssi_avg_dbm: 0, // Node A doesn't measure RSSI (TX node)
-          snr_avg_db: 0, // Node A doesn't measure SNR (TX node)
-          preamble_q_avg: 0, // Node A doesn't measure preamble quality (TX node)
-        });
+        try {
+          await this.csvLogger.logData({
+            timestamp: new Date().toISOString(),
+            run_name: test.run_name,
+            node_id: "A",
+            link_distance_m: test.d_link,
+            env_type: test.env_type,
+            channel: configA?.channel || test.config.channel,
+            data_rate: configA?.data_rate || test.config.data_rate,
+            tx_power_idx: configA?.tx_power_idx || test.config.tx_power_idx,
+            pkt_rate_hz: configA?.pkt_rate_hz || test.config.pkt_rate_hz,
+            jammer_label: test.jammer_label,
+            // Node A is TX - map TX stats to CSV schema
+            // total_sent represents packets sent (conceptually similar to total_rx)
+            total_rx: statsA.total_sent || 0, // Map total_sent to total_rx for CSV
+            lost_pkts: 0, // Node A doesn't track lost packets (that's Node B's job)
+            crc_err: statsA.last_error || 0, // Map last_error to crc_err for CSV
+            rssi_avg_dbm: 0, // Node A doesn't measure RSSI (TX node)
+            snr_avg_db: 0, // Node A doesn't measure SNR (TX node)
+            preamble_q_avg: 0, // Node A doesn't measure preamble quality (TX node)
+          });
+        } catch (csvError) {
+          // CSV logging is optional - don't fail polling if CSV write fails
+          if (process.env.DEBUG_RS485) {
+            console.warn("[TestRunner] CSV logging failed for Node A:", csvError.message);
+          }
+        }
       }
 
       // Log Node B data
       if (statsB) {
-        await this.csvLogger.logData({
-          timestamp: new Date().toISOString(),
-          run_name: test.run_name,
-          node_id: "B",
-          link_distance_m: test.d_link,
-          env_type: test.env_type,
-          channel: configB?.channel || test.config.channel,
-          data_rate: configB?.data_rate || test.config.data_rate,
-          tx_power_idx: configB?.tx_power_idx || test.config.tx_power_idx,
-          pkt_rate_hz: configB?.pkt_rate_hz || test.config.pkt_rate_hz,
-          jammer_label: test.jammer_label,
-          total_rx: statsB.total_rx || 0,
-          lost_pkts: statsB.lost_pkts || 0,
-          crc_err: statsB.crc_err || 0,
-          rssi_avg_dbm: statsB.rssi_avg_dbm || 0,
-          snr_avg_db: statsB.snr_avg_db || 0,
-          preamble_q_avg: statsB.preamble_q_avg || 0,
-        });
+        try {
+          await this.csvLogger.logData({
+            timestamp: new Date().toISOString(),
+            run_name: test.run_name,
+            node_id: "B",
+            link_distance_m: test.d_link,
+            env_type: test.env_type,
+            channel: configB?.channel || test.config.channel,
+            data_rate: configB?.data_rate || test.config.data_rate,
+            tx_power_idx: configB?.tx_power_idx || test.config.tx_power_idx,
+            pkt_rate_hz: configB?.pkt_rate_hz || test.config.pkt_rate_hz,
+            jammer_label: test.jammer_label,
+            total_rx: statsB.total_rx || 0,
+            lost_pkts: statsB.lost_pkts || 0,
+            crc_err: statsB.crc_err || 0,
+            rssi_avg_dbm: statsB.rssi_avg_dbm || 0,
+            snr_avg_db: statsB.snr_avg_db || 0,
+            preamble_q_avg: statsB.preamble_q_avg || 0,
+          });
+        } catch (csvError) {
+          // CSV logging is optional - don't fail polling if CSV write fails
+          if (process.env.DEBUG_RS485) {
+            console.warn("[TestRunner] CSV logging failed for Node B:", csvError.message);
+          }
+        }
       }
 
       // Emit stats for real-time updates

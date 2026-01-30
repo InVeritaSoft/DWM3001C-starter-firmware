@@ -476,7 +476,19 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
                 : {
                     run_name: "manual_test",
                     config: {},
+                    d_link: 0,
+                    env_type: "unknown",
                   };
+            
+            // CRITICAL: Create CSV log file before starting polling
+            // This ensures logData() calls don't fail with "No CSV file created"
+            try {
+              csvLogger.createLogFile(test.run_name);
+            } catch (error) {
+              console.error("[API] Failed to create CSV log file:", error);
+              // Continue anyway - logging is optional
+            }
+            
             testRunner.isRunning = true;
             testRunner.startPolling(test);
             testRunner.emit("testStarted", test);

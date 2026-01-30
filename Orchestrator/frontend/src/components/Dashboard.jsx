@@ -50,25 +50,13 @@ export default function Dashboard() {
     }
   }, [stats]);
 
-  // Monitor node states and generate report when both nodes stop
+  // Monitor node states - report is now auto-generated in real-time via useRealtimeData hook
+  // No need to manually generate report when nodes stop - it updates automatically
   useEffect(() => {
     const nodeAState = status?.nodeA?.state;
     const nodeBState = status?.nodeB?.state;
-    const prevNodeAState = prevStatesRef.current.nodeA;
-    const prevNodeBState = prevStatesRef.current.nodeB;
 
-    // Check if both nodes just stopped (were running, now stopped)
-    const bothJustStopped =
-      prevNodeAState === "RUNNING" &&
-      nodeAState === "STOPPED" &&
-      prevNodeBState === "RUNNING" &&
-      nodeBState === "STOPPED";
-
-    if (bothJustStopped) {
-      handleGenerateReport();
-    }
-
-    // Update previous states
+    // Update previous states for reference
     prevStatesRef.current = {
       nodeA: nodeAState,
       nodeB: nodeBState,
@@ -181,10 +169,13 @@ export default function Dashboard() {
   };
 
   const handleGenerateReport = async () => {
+    // Optional: Still allow manual report generation from backend API
+    // But primary report is now auto-generated in real-time
     setReportLoading(true);
     try {
       const report = await apiClient.generateReport();
       setGeneratedReport(report);
+      showSuccess("Report generated from backend API");
     } catch (error) {
       console.error("Failed to generate report:", error);
       showError(`Failed to generate report: ${error.message || error}`);
@@ -265,8 +256,9 @@ export default function Dashboard() {
               onClick={handleGenerateReport}
               disabled={reportLoading}
               style={{ marginTop: "0.5rem", backgroundColor: "#9e9e9e" }}
+              title="Generate report from backend API (report also updates automatically in real-time)"
             >
-              {reportLoading ? "Generating..." : "Generate Report"}
+              {reportLoading ? "Generating..." : "Generate Report (API)"}
             </button>
           </div>
         </div>
@@ -320,15 +312,38 @@ export default function Dashboard() {
         <MetricsChart data={chartData} metric="per" />
       </div>
 
-      {testReport && (
+      {/* Auto-generated real-time report - updates automatically as test runs */}
+      {(testReport || testRunning) && (
         <div className="test-report-section">
-          <TestReport report={testReport} />
+          <div className="report-header-indicator">
+            {testRunning ? (
+              <span className="report-status-badge running">
+                🔄 Live Report (Updating in real-time...)
+              </span>
+            ) : testReport ? (
+              <span className="report-status-badge stopped">
+                ✓ Final Report
+              </span>
+            ) : (
+              <span className="report-status-badge running">
+                ⏳ Preparing report...
+              </span>
+            )}
+          </div>
+          {testReport ? (
+            <TestReport report={testReport} />
+          ) : testRunning ? (
+            <div className="report-loading">
+              <p>Initializing report... Waiting for stats...</p>
+            </div>
+          ) : null}
         </div>
       )}
 
+      {/* Optional: Backend API generated report (for comparison) */}
       {generatedReport && (
         <div className="test-report-section">
-          <h3>Generated Test Report</h3>
+          <h3>Backend API Report (Optional)</h3>
           <div className="report-content">
             <div className="report-section">
               <h4>Node A</h4>

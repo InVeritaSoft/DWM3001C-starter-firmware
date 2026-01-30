@@ -65,63 +65,130 @@ export function useRealtimeData() {
         nodeA: stats.nodeA ? { ...stats.nodeA } : null,
         nodeB: stats.nodeB ? { ...stats.nodeB } : null,
       };
-      setTestReport(null); // Clear previous report
+      // Initialize report immediately when test starts
+      setTestReport({
+        startTime: testStartTimeRef.current,
+        endTime: null,
+        duration: 0,
+        nodeA: {
+          packetsSent: 0,
+          errors: 0,
+          startStats: testStartStatsRef.current.nodeA,
+          endStats: null,
+        },
+        nodeB: {
+          packetsReceived: 0,
+          packetsLost: 0,
+          crcErrors: 0,
+          startStats: testStartStatsRef.current.nodeB,
+          endStats: null,
+        },
+        packetLossRate: "0.00",
+        successRate: "0.00",
+      });
     };
 
-    // Test stop handler - calculate report
+    // Calculate report from current stats (called whenever stats update)
+    const calculateReport = () => {
+      if (!testStartStatsRef.current || !testStartTimeRef.current) {
+        return;
+      }
+
+      const currentTime = new Date();
+      // Always calculate duration from start time for real-time updates
+      const duration = currentTime - testStartTimeRef.current;
+
+      const report = {
+        startTime: testStartTimeRef.current,
+        endTime: testRunning ? null : currentTime,
+        duration: duration,
+        nodeA: {
+          packetsSent: stats.nodeA?.total_sent
+            ? stats.nodeA.total_sent -
+              (testStartStatsRef.current.nodeA?.total_sent || 0)
+            : 0,
+          errors: stats.nodeA?.last_error
+            ? stats.nodeA.last_error -
+              (testStartStatsRef.current.nodeA?.last_error || 0)
+            : 0,
+          startStats: testStartStatsRef.current.nodeA,
+          endStats: stats.nodeA,
+        },
+        nodeB: {
+          packetsReceived: stats.nodeB?.total_rx
+            ? stats.nodeB.total_rx -
+              (testStartStatsRef.current.nodeB?.total_rx || 0)
+            : 0,
+          packetsLost: stats.nodeB?.lost_pkts
+            ? stats.nodeB.lost_pkts -
+              (testStartStatsRef.current.nodeB?.lost_pkts || 0)
+            : 0,
+          crcErrors: stats.nodeB?.crc_err
+            ? stats.nodeB.crc_err -
+              (testStartStatsRef.current.nodeB?.crc_err || 0)
+            : 0,
+          startStats: testStartStatsRef.current.nodeB,
+          endStats: stats.nodeB,
+        },
+      };
+
+      // Calculate packet loss rate
+      const totalSent = report.nodeA.packetsSent;
+      const totalReceived = report.nodeB.packetsReceived;
+      const totalLost = report.nodeB.packetsLost;
+      report.packetLossRate =
+        totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "0.00";
+      report.successRate =
+        totalSent > 0
+          ? ((totalReceived / totalSent) * 100).toFixed(2)
+          : "0.00";
+
+      setTestReport(report);
+    };
+
+    // Update report whenever stats change (real-time updates)
+    useEffect(() => {
+      if (testRunning && testStartStatsRef.current && testStartTimeRef.current) {
+        calculateReport();
+      }
+    }, [
+      stats.nodeA?.total_sent,
+      stats.nodeA?.last_error,
+      stats.nodeB?.total_rx,
+      stats.nodeB?.lost_pkts,
+      stats.nodeB?.crc_err,
+      testRunning,
+    ]);
+
+    // Update duration in real-time every second when test is running
+    useEffect(() => {
+      if (!testRunning || !testStartTimeRef.current) {
+        return;
+      }
+
+      const interval = setInterval(() => {
+        if (testStartStatsRef.current && testStartTimeRef.current) {
+          // Force update by recalculating report
+          const currentTime = new Date();
+          const duration = currentTime - testStartTimeRef.current;
+          setTestReport((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              duration: duration,
+            };
+          });
+        }
+      }, 1000); // Update every second for smooth duration counter
+
+      return () => clearInterval(interval);
+    }, [testRunning]);
+
+    // Test stop handler - finalize report
     const handleTestStopped = () => {
       setTestRunning(false);
       if (testStartStatsRef.current && testStartTimeRef.current) {
-        // Calculate delta between start and stop
-        const endTime = new Date();
-        const duration = endTime - testStartTimeRef.current;
-
-        const report = {
-          startTime: testStartTimeRef.current,
-          endTime: endTime,
-          duration: duration,
-          nodeA: {
-            packetsSent: stats.nodeA?.total_sent
-              ? stats.nodeA.total_sent -
-                (testStartStatsRef.current.nodeA?.total_sent || 0)
-              : 0,
-            errors: stats.nodeA?.last_error
-              ? stats.nodeA.last_error -
-                (testStartStatsRef.current.nodeA?.last_error || 0)
-              : 0,
-            startStats: testStartStatsRef.current.nodeA,
-            endStats: stats.nodeA,
-          },
-          nodeB: {
-            packetsReceived: stats.nodeB?.total_rx
-              ? stats.nodeB.total_rx -
-                (testStartStatsRef.current.nodeB?.total_rx || 0)
-              : 0,
-            packetsLost: stats.nodeB?.lost_pkts
-              ? stats.nodeB.lost_pkts -
-                (testStartStatsRef.current.nodeB?.lost_pkts || 0)
-              : 0,
-            crcErrors: stats.nodeB?.crc_err
-              ? stats.nodeB.crc_err -
-                (testStartStatsRef.current.nodeB?.crc_err || 0)
-              : 0,
-            startStats: testStartStatsRef.current.nodeB,
-            endStats: stats.nodeB,
-          },
-        };
-
-        // Calculate packet loss rate
-        const totalSent = report.nodeA.packetsSent;
-        const totalReceived = report.nodeB.packetsReceived;
-        const totalLost = report.nodeB.packetsLost;
-        report.packetLossRate =
-          totalSent > 0 ? ((totalLost / totalSent) * 100).toFixed(2) : "0.00";
-        report.successRate =
-          totalSent > 0
-            ? ((totalReceived / totalSent) * 100).toFixed(2)
-            : "0.00";
-
-        setTestReport(report);
+        calculateReport(); // Final calculation with endTime set
       }
     };
 

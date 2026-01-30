@@ -400,12 +400,12 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
-                // DEBUG: Blink GREEN LED (LED_2, GPIO 22) on every byte received to confirm interrupt is working
-                // NOTE: Blue LED (LED_3, GPIO 14) conflicts with UART RX pin, so using Green LED instead
-                // This helps diagnose if interrupt handler is being called
+                // CRITICAL: Minimize blocking delays in interrupt handler to allow commands to be processed quickly
+                // Even if send_packet() is running, UART interrupts should be processed immediately
+                // Use very short delays or non-blocking LED toggles
                 bsp_board_led_on(2);  // Green LED (GPIO 22) - shows interrupt is firing
-                nrf_delay_ms(10);      // Short blink
-                bsp_board_led_off(2);
+                // Removed nrf_delay_ms(10) - blocking delay in interrupt handler can delay command processing
+                // LED will be turned off after command parsing
                 
                 if (byte == '\r' || byte == '\n')
                 {
@@ -415,11 +415,20 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                         
                         // ORANGE LED: RX - Complete command received
                         bsp_board_led_on(1);
-                        nrf_delay_ms(100);  // Longer blink for complete command
+                        // Reduced delay from 100ms to 50ms to minimize blocking in interrupt handler
+                        nrf_delay_ms(50);  // Shorter blink for complete command
                         bsp_board_led_off(1);
+                        
+                        // Turn off green LED after command is parsed
+                        bsp_board_led_off(2);
                         
                         parse_command((char *)rx_buffer);
                         rx_index = 0;
+                    }
+                    else
+                    {
+                        // Empty command (just \r\n) - turn off LED
+                        bsp_board_led_off(2);
                     }
                 }
                 else if (rx_index < (UART_BUFFER_SIZE - 1))

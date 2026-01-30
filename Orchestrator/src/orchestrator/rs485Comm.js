@@ -30,6 +30,7 @@ export class RS485Comm extends EventEmitter {
     this.isOpen = false;
     this.pendingCommands = new Map();
     this.commandId = 0;
+    this.lastDataReceived = null; // Track when we last received any data
   }
 
   /**
@@ -281,12 +282,42 @@ export class RS485Comm extends EventEmitter {
       }
     }
 
+    // Verify port is actually open before sending
+    if (!this.isOpen || !this.serialPort || !this.serialPort.isOpen) {
+      throw new Error(
+        `Port ${this.port} is not open. Cannot send command "${command}".`,
+      );
+    }
+
     const commandId = ++this.commandId;
     const commandStr = `${command}\r\n`;
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
+
+        // Log pending commands for debugging
+        const pendingCount = this.pendingCommands.size;
+        const pendingIds = Array.from(this.pendingCommands.keys());
+        console.error(
+          `[RS485 TIMEOUT] ${this.port}: Command "${command}" (ID: ${commandId}) timed out after ${timeout}ms`,
+        );
+        console.error(
+          `[RS485 TIMEOUT] ${this.port}: Pending commands: ${pendingCount}, IDs: [${pendingIds.join(", ")}]`,
+        );
+        console.error(
+          `[RS485 TIMEOUT] ${this.port}: Port open: ${this.isOpen}, SerialPort open: ${this.serialPort?.isOpen}`,
+        );
+        if (this.lastDataReceived) {
+          const timeSinceLastData = Date.now() - this.lastDataReceived;
+          console.error(
+            `[RS485 TIMEOUT] ${this.port}: Last data received: ${timeSinceLastData}ms ago (firmware may be stuck or crashed)`,
+          );
+        } else {
+          console.error(
+            `[RS485 TIMEOUT] ${this.port}: No data received since port opened (firmware may not be running or port connection issue)`,
+          );
+        }
 
         // Provide helpful error message with troubleshooting steps
         const errorMsg =

@@ -11,9 +11,15 @@ export default function TestReport({ report }) {
   }
 
   const formatDuration = (ms) => {
+    if (!ms && ms !== 0) return "0s"; // Handle null/undefined
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (hours > 0) {
+      return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
+    }
     if (minutes > 0) {
       return `${minutes}m ${remainingSeconds}s`;
     }
@@ -133,12 +139,17 @@ export default function TestReport({ report }) {
           </div>
           <div className="meta-item">
             <span className="meta-label">End Time:</span>
-            <span className="meta-value">{formatDateTime(report.endTime)}</span>
+            <span className="meta-value">
+              {report.endTime
+                ? formatDateTime(report.endTime)
+                : "Test in progress..."}
+            </span>
           </div>
           <div className="meta-item">
             <span className="meta-label">Duration:</span>
             <span className="meta-value">
               {formatDuration(report.duration)}
+              {!report.endTime && " (live)"}
             </span>
           </div>
         </div>
