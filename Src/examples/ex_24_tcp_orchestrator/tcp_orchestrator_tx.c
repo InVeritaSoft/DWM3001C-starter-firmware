@@ -870,16 +870,6 @@ static void parse_command(char *cmd)
         // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
         // Only reset if explicitly requested via RESET_STATS command
         
-        // AGGRESSIVE FIX: Ensure DW3000 is properly configured and in clean state
-        // Reconfigure to ensure clean state (critical for TX success)
-        dwt_configure(&dwt_config);
-        configure_tx_power();
-        
-        // Clear any pending status bits and force to IDLE
-        dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-        dwt_forcetrxoff();
-        Sleep(10); // Delay to ensure DW3000 is ready
-        
         // Clear retransmission queue
         memset(g_retransmit_queue, 0, sizeof(g_retransmit_queue));
         g_queue_head = 0;
@@ -1136,29 +1126,19 @@ static void send_packet(void)
     // Simple approach: just force to IDLE and start TX immediately
     dwt_forcetrxoff(); // Force to IDLE state if needed
     
-    // CRITICAL FIX: Small delay to ensure DW3000 transitions to IDLE state
-    // Without this delay, TX frame rejection can occur if DW3000 isn't ready
-    Sleep(1); // Small delay to ensure IDLE state
-    
-    // CRITICAL FIX: Clear any stale interrupt bits BEFORE starting TX
-    // Old interrupt bits from previous TX can cause false detection
-    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-    
     // ORANGE LED: Turn on to indicate UWB packet transmission starting
     bsp_board_led_on(1);
     // GREEN LED: Turn on to indicate UWB exchange (packet transmission)
     bsp_board_led_on(2);
     
-    // Start transmission immediately (matches working ex_22_orchestrator_v2)
+    // Start transmission immediately (matches working ex_22_orchestrator_v2 exactly)
+    // NOTE: Do NOT clear interrupt bits before TX - this can interfere with DW3000 state
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
-    // CRITICAL FIX: Check both TXFRS (success) and error bits to detect completion
-    uint32_t tx_complete_mask = DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
-    
-    // Poll for TX complete with timeout (matches working ex_22_orchestrator_v2 pattern)
+    // Poll for TX complete with timeout (matches working ex_22_orchestrator_v2 pattern exactly)
     // Read status immediately after starting TX - TX can complete very quickly
     status_reg = dwt_readsysstatuslo();
-    while (!(status_reg & tx_complete_mask) && timeout_count < max_timeout_ms)
+    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
     {
         // Check if test was stopped - exit early to allow STOP command processing
         if (!g_test_running)
