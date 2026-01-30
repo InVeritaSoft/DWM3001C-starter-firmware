@@ -1197,18 +1197,23 @@ static void send_packet(void)
                 }
                 
                 // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
+                // DISABLED: This was blocking transmission and causing timer to stop
+                // The reconfiguration takes too long and interferes with continuous transmission
+                // Instead, just clear status bits and force to IDLE - let normal TX flow recover
                 if (g_consecutive_errors >= 10)
                 {
                     // Force to IDLE first
                     dwt_forcetrxoff();
-                    Sleep(10); // Longer delay for recovery
+                    Sleep(2); // Short delay for recovery
                     
-                    // Reconfigure DW3000 to reset its state
-                    dwt_configure(&dwt_config);
-                    configure_tx_power();
+                    // Clear status bits to reset error state
+                    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
                     
                     // Reset consecutive error counter
                     g_consecutive_errors = 0;
+                    
+                    // NOTE: Removed dwt_configure() and configure_tx_power() calls
+                    // These were blocking for too long and preventing timer from firing
                 }
             }
             else
