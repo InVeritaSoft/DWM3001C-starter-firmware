@@ -286,14 +286,12 @@ static void uart_event_handler(app_uart_evt_t *p_event)
                     {
                         rx_buffer[rx_index] = '\0';
                         bsp_board_led_on(1);  // Orange - complete command
-                        /* Queue for main loop; do NOT call parse_command() here (send_response blocks) */
-                        if (!g_pending_cmd_ready)
-                        {
-                            size_t len = (size_t)rx_index;
-                            if (len >= sizeof(g_pending_cmd_buffer)) len = sizeof(g_pending_cmd_buffer) - 1;
-                            memcpy(g_pending_cmd_buffer, rx_buffer, len + 1);
-                            g_pending_cmd_ready = 1;
-                        }
+                        /* Always overwrite with latest command so STRT/STAT are not dropped while we're in configure_uwb() or long handlers */
+                        size_t len = (size_t)rx_index;
+                        if (len >= sizeof(g_pending_cmd_buffer)) len = sizeof(g_pending_cmd_buffer) - 1;
+                        memcpy(g_pending_cmd_buffer, rx_buffer, len + 1);
+                        g_pending_cmd_buffer[len] = '\0';
+                        g_pending_cmd_ready = 1;
                         bsp_board_led_off(1);
                     }
                     bsp_board_led_off(2);
@@ -365,8 +363,8 @@ static uint32_t uart_init(void)
     {
         .rx_pin_no = UART_0_RX_PIN,
         .tx_pin_no = UART_0_TX_PIN,
-        .rts_pin_no = 4,  // P0.4 (LED 1) - unused for flow control (matches orchestrator_v2)
-        .cts_pin_no = 5,  // P0.5 (LED 2) - unused for flow control (matches orchestrator_v2)
+        .rts_pin_no = UART_PIN_DISCONNECTED,  // Avoid using P0.4 (LED 0) - prevents pin contention with LED
+        .cts_pin_no = UART_PIN_DISCONNECTED,  // Avoid using P0.5 (LED 1) - prevents pin contention with LED
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity = false,
         .baud_rate = 30801920  // 115200 baud (direct RS485 connection, no Arduino bridge)
@@ -452,12 +450,12 @@ static void send_response(const char *response)
             Sleep(1);
         }
         if (timeout == 0) {
-            // TX failed - blink red LED to indicate error and exit early
+            // TX failed - clear UART errors so next send isn't stuck (pin blocked)
+            NRF_UART0->ERRORSRC = 0xFFFFFFFF;
             bsp_board_led_off(2);
             bsp_board_led_on(0);  // Red LED = error
             nrf_delay_ms(50);
             bsp_board_led_off(0);
-            // Don't log here - would compete for UART TX buffer
             return;  // Exit early on failure
         }
         bytes_sent++;
@@ -697,10 +695,11 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
-        /* Guard 1: ignore STOP within STOP_GUARD_TICKS of START (RS485 noise at startup) */
+        /* Guard 1: ignore STOP within STOP_GUARD_TICKS of START (RS485 noise at startup); still respond so orchestrator does not timeout */
         uint32_t elapsed = (g_loop_count >= g_start_loop) ? (g_loop_count - g_start_loop) : 0;
         if (elapsed < STOP_GUARD_TICKS)
         {
+            send_response("OK");
             return;
         }
         /* Guard 2: require two STOPs within STOP_CONFIRM_TICKS to actually stop (filters spurious STOP mid-test) */
@@ -1097,8 +1096,11 @@ int tcp_orchestrator_rx(void)
     while (1)
     {
         g_loop_count++;
-        /* Process queued UART commands so STAT/STATS response does not block in interrupt */
-        process_pending_command();
+        /* Drain all queued UART commands so STAT/STATS get responses even if multiple arrived during send_response() */
+        while (g_pending_cmd_ready)
+        {
+            process_pending_command();
+        }
         
         if (g_test_running)
         {
