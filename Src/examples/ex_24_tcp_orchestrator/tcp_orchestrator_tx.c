@@ -158,10 +158,17 @@ static uwb_tcp_packet_t g_tx_packet;
 static uint8_t g_timer_initialized = 0;
 static dwt_txconfig_t g_tx_config; // TX power configuration
 
-// Safety mechanism: Track timer ticks since g_tx_in_progress was set to detect stuck state
+// BULLETPROOF SAFETY MECHANISMS: Multiple layers to ensure transmission NEVER gets stuck
+// Safety mechanism 1: Track timer ticks since g_tx_in_progress was set to detect stuck state
 static volatile uint32_t g_tx_in_progress_ticks = 0;
-#define TX_IN_PROGRESS_MAX_TICKS 3  // If TX in progress for >3 timer ticks (~30ms at 100Hz), something is wrong
-// Reduced to 3 for very fast recovery from stuck states - ensures transmission resumes within 30ms
+#define TX_IN_PROGRESS_MAX_TICKS 2  // If TX in progress for >2 timer ticks (~20ms at 100Hz), force recovery
+// Extremely aggressive: ensures transmission resumes within 20ms even if send_packet() gets stuck
+
+// Safety mechanism 2: Track last attempted count to detect if send_packet() stops being called
+static volatile uint32_t g_last_attempted_count = 0;
+static volatile uint32_t g_stuck_ticks = 0;
+#define STUCK_MAX_TICKS 3  // If total_attempted hasn't changed for >3 ticks (~30ms), force recovery
+// Aggressive: catches cases where send_packet() completes but stops being called
 static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for recovery
 
 /* Retransmission queue */
@@ -999,7 +1006,34 @@ static void tx_timer_handler(void *p_context)
     // Always check if test is running - don't block timer if test stopped
     if (!g_test_running)
     {
+        g_stuck_ticks = 0;
+        g_last_attempted_count = 0;
         return;
+    }
+    
+    // ADDITIONAL SAFETY: Check if send_packet() has stopped being called
+    // If total_attempted hasn't changed for several ticks, force recovery
+    if (g_stats.total_attempted == g_last_attempted_count)
+    {
+        g_stuck_ticks++;
+        if (g_stuck_ticks > STUCK_MAX_TICKS)
+        {
+            // send_packet() hasn't been called successfully for too long - force recovery
+            // Clear g_tx_in_progress to unblock transmission
+            g_tx_in_progress = 0;
+            g_tx_in_progress_ticks = 0;
+            // Force DW3000 to IDLE state to ensure clean recovery
+            dwt_forcetrxoff();
+            dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+            // Reset stuck counter - we'll check again after calling send_packet()
+            g_stuck_ticks = 0;
+        }
+    }
+    else
+    {
+        // total_attempted changed - reset stuck counter
+        g_stuck_ticks = 0;
+        g_last_attempted_count = g_stats.total_attempted;
     }
     
     // SAFETY MECHANISM: If g_tx_in_progress has been set for too long, clear it
@@ -1035,6 +1069,13 @@ static void tx_timer_handler(void *p_context)
     // CRITICAL: At this point, g_tx_in_progress must be 0, so we can safely call send_packet()
     // This ensures transmission continues even after errors or watchdog recovery
     
+    // BULLETPROOF FAILSAFE: Double-check that test is still running before calling send_packet()
+    // This prevents any edge cases where g_test_running might have changed
+    if (!g_test_running)
+    {
+        return; // Test stopped - don't send packets
+    }
+    
     // CRITICAL FIX: Removed window size blocking for continuous transmission
     // The window check was blocking transmission when window was full (10 packets)
     // This caused transmission to stop after ~10 packets, making it feel "static"
@@ -1047,8 +1088,9 @@ static void tx_timer_handler(void *p_context)
         // Continue transmission anyway to maintain continuous flow
     }
     
-    // Send packet - this should not block the timer handler
-    // Note: send_packet() checks g_test_running internally and exits early if stopped
+    // BULLETPROOF: Always call send_packet() if we reach here
+    // send_packet() has internal checks and will exit early if needed
+    // This ensures transmission NEVER stops as long as g_test_running is true
     send_packet();
 }
 
@@ -1104,10 +1146,10 @@ static void send_packet(void)
     
     uint32_t status_reg;
     uint32_t timeout_count = 0;
-    // CRITICAL FIX: Increased timeout to 50ms to ensure TX completion is detected
-    // TX frame duration is ~672us, but with retries and processing, 20ms was too short
-    // For 100Hz rate (10ms period), 50ms allows 5x margin while still being non-blocking
-    const uint32_t max_timeout_ms = 50;
+    // BULLETPROOF: Reduced timeout to 20ms for faster completion and recovery
+    // TX frame duration is ~672us, so 20ms provides ~30x margin
+    // Shorter timeout ensures send_packet() completes quickly even on errors, allowing watchdog to catch issues faster
+    const uint32_t max_timeout_ms = 20;
 
     g_stats.total_attempted++;
 
@@ -1229,25 +1271,10 @@ static void send_packet(void)
                     g_stats.last_error = 1; // General TX error
                 }
                 
-                // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
-                // DISABLED: This was blocking transmission and causing timer to stop
-                // The reconfiguration takes too long and interferes with continuous transmission
-                // Instead, just clear status bits and force to IDLE - let normal TX flow recover
-                if (g_consecutive_errors >= 10)
-                {
-                    // Force to IDLE first
-                    dwt_forcetrxoff();
-                    Sleep(2); // Short delay for recovery
-                    
-                    // Clear status bits to reset error state
-                    dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-                    
-                    // Reset consecutive error counter
-                    g_consecutive_errors = 0;
-                    
-                    // NOTE: Removed dwt_configure() and configure_tx_power() calls
-                    // These were blocking for too long and preventing timer from firing
-                }
+                // BULLETPROOF: No special recovery needed for consecutive errors
+                // Always do minimal recovery (below) - let watchdog handle persistent issues
+                // Removed consecutive error check to ensure recovery happens immediately
+                // The watchdog mechanisms will ensure transmission resumes even if errors persist
             }
             else
             {
@@ -1256,14 +1283,22 @@ static void send_packet(void)
             }
         }
         
-        // Clear any pending status bits and force to IDLE (matches ex_22_orchestrator_v2)
+        // BULLETPROOF ERROR RECOVERY: Always force clean state on ANY error
+        // This ensures DW3000 is ready for next TX attempt, preventing stuck states
+        // Force to IDLE FIRST, then clear status bits - ensures clean recovery
+        dwt_forcetrxoff(); // Force to IDLE state FIRST to ensure clean recovery
         dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
-        dwt_forcetrxoff(); // Force to IDLE state to recover
         
         // ORANGE LED: Turn off after error/timeout
         bsp_board_led_off(1);
         // GREEN LED: Turn off after error/timeout
         bsp_board_led_off(2);
+        
+        // NOTE: No Sleep() or other blocking operations here
+        // The timer will call send_packet() again immediately, allowing rapid retry
+        // This ensures transmission NEVER stops, even during jamming or errors
+        // g_consecutive_errors is tracked but not used for blocking recovery
+        // The watchdog mechanisms ensure transmission resumes even if errors persist
     }
     
     // CRITICAL: Always clear TX in progress flag at end of function

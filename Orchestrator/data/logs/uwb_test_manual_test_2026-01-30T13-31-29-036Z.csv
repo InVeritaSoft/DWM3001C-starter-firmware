@@ -1,0 +1,11 @@
+timestamp,run_name,node_id,link_distance_m,env_type,channel,data_rate,tx_power_idx,pkt_rate_hz,jammer_label,total_rx,lost_pkts,crc_err,rssi_avg_dbm,snr_avg_db,preamble_q_avg,per
+2026-01-30T13:31:29.575Z,manual_test,A,0,unknown,0,,0,0,,95,0,0,0,0,0,0
+2026-01-30T13:31:29.586Z,manual_test,B,0,unknown,0,,0,0,,40,7,0,-100,0,109,14.893617021276595
+2026-01-30T13:31:31.574Z,manual_test,A,0,unknown,0,,0,0,,217,0,0,0,0,0,0
+2026-01-30T13:31:31.583Z,manual_test,B,0,unknown,0,,0,0,,133,22,0,-100,0,109,14.193548387096774
+2026-01-30T13:31:33.601Z,manual_test,A,0,unknown,0,,0,0,,217,0,0,0,0,0,0
+2026-01-30T13:31:33.622Z,manual_test,B,0,unknown,0,,0,0,,133,22,0,-100,0,109,14.193548387096774
+2026-01-30T13:31:35.443Z,manual_test,A,0,unknown,0,,0,0,,217,0,0,0,0,0,0
+2026-01-30T13:31:35.453Z,manual_test,B,0,unknown,0,,0,0,,133,22,0,-100,0,109,14.193548387096774
+2026-01-30T13:31:37.430Z,manual_test,A,0,unknown,0,,0,0,,217,0,0,0,0,0,0
+2026-01-30T13:31:37.445Z,manual_test,B,0,unknown,0,,0,0,,133,22,0,-100,0,109,14.193548387096774
