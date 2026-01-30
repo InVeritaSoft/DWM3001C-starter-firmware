@@ -59,18 +59,18 @@ export default function TestReport({ report }) {
       ["Duration", formatDuration(report.duration)],
       [],
       ["Node A (TX) - Packages Sent"],
-      ["Packets Sent", report.nodeA.packetsSent],
-      ["Transmission Errors", report.nodeA.errors],
+      ["Packets Sent", report.nodeA?.packetsSent ?? 0],
+      ["Transmission Errors", report.nodeA?.errors ?? 0],
       [],
       ["Node B (RX) - Packages Received"],
-      ["Packets Received", report.nodeB.packetsReceived],
-      ["Packets Lost", report.nodeB.packetsLost],
-      ["CRC Errors", report.nodeB.crcErrors],
+      ["Packets Received", report.nodeB?.packetsReceived ?? 0],
+      ["Packets Lost", report.nodeB?.packetsLost ?? 0],
+      ["CRC Errors", report.nodeB?.crcErrors ?? 0],
       [],
       ["Link Quality Metrics"],
-      ["Packet Loss Rate (%)", report.packetLossRate],
-      ["Success Rate (%)", report.successRate],
-      ["Total Packets (A→B)", report.nodeA.packetsSent],
+      ["Packet Loss Rate (%)", report.packetLossRate ?? "0.00"],
+      ["Success Rate (%)", report.successRate ?? "0.00"],
+      ["Total Packets (A→B)", report.nodeA?.packetsSent ?? 0],
     ];
 
     // Add signal quality if available
@@ -162,13 +162,13 @@ export default function TestReport({ report }) {
             <div className="report-item">
               <span className="report-label">Packets Sent:</span>
               <span className="report-value highlight">
-                {report.nodeA.packetsSent.toLocaleString()}
+                {(report.nodeA?.packetsSent ?? 0).toLocaleString()}
               </span>
             </div>
             <div className="report-item">
               <span className="report-label">Transmission Errors:</span>
               <span className="report-value">
-                {report.nodeA.errors.toLocaleString()}
+                {(report.nodeA?.errors ?? 0).toLocaleString()}
               </span>
             </div>
           </div>
@@ -180,19 +180,19 @@ export default function TestReport({ report }) {
             <div className="report-item">
               <span className="report-label">Packets Received:</span>
               <span className="report-value highlight">
-                {report.nodeB.packetsReceived.toLocaleString()}
+                {(report.nodeB?.packetsReceived ?? 0).toLocaleString()}
               </span>
             </div>
             <div className="report-item">
               <span className="report-label">Packets Lost:</span>
               <span className="report-value error">
-                {report.nodeB.packetsLost.toLocaleString()}
+                {(report.nodeB?.packetsLost ?? 0).toLocaleString()}
               </span>
             </div>
             <div className="report-item">
               <span className="report-label">CRC Errors:</span>
               <span className="report-value error">
-                {report.nodeB.crcErrors.toLocaleString()}
+                {(report.nodeB?.crcErrors ?? 0).toLocaleString()}
               </span>
             </div>
           </div>
@@ -203,18 +203,18 @@ export default function TestReport({ report }) {
           <div className="report-grid">
             <div className="report-item">
               <span className="report-label">Packet Loss Rate:</span>
-              <span className="report-value">{report.packetLossRate}%</span>
+              <span className="report-value">{report.packetLossRate ?? "0.00"}%</span>
             </div>
             <div className="report-item">
               <span className="report-label">Success Rate:</span>
               <span className="report-value success">
-                {report.successRate}%
+                {report.successRate ?? "0.00"}%
               </span>
             </div>
             <div className="report-item">
               <span className="report-label">Total Packets (A→B):</span>
               <span className="report-value">
-                {report.nodeA.packetsSent.toLocaleString()}
+                {(report.nodeA?.packetsSent ?? 0).toLocaleString()}
               </span>
             </div>
           </div>
