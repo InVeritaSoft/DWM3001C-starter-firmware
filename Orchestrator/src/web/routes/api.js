@@ -453,6 +453,44 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
       );
       try {
         const result = await node.startTest();
+
+        // CRITICAL FIX: Start polling if both nodes are running
+        // This ensures charts update in real-time when nodes are started via frontend
+        const nodeAState = nodeA.getState();
+        const nodeBState = nodeB.getState();
+        if (
+          !testRunner.isRunning &&
+          (nodeAState === "RUNNING" || nodeBState === "RUNNING")
+        ) {
+          // Check if both nodes are running - if so, start polling
+          if (nodeAState === "RUNNING" && nodeBState === "RUNNING") {
+            console.log(
+              "[API] Both nodes running - starting testRunner polling for real-time updates",
+            );
+            // Create a minimal test config for polling
+            const testPlan = config.getTestPlan();
+            const test =
+              testPlan && testPlan.tests && testPlan.tests.length > 0
+                ? testPlan.tests[0]
+                : {
+                    run_name: "manual_test",
+                    config: {},
+                  };
+            testRunner.isRunning = true;
+            testRunner.startPolling(test);
+            testRunner.emit("testStarted", test);
+
+            // Immediately poll stats to get initial data for charts
+            setTimeout(async () => {
+              try {
+                await testRunner.pollAndLog(test);
+              } catch (error) {
+                console.error("[API] Initial stats poll error:", error);
+              }
+            }, 100); // Small delay to ensure nodes are ready
+          }
+        }
+
         res.json({ success: result });
       } catch (startError) {
         // Handle "ERR NOT_CONFIGURED" from firmware
