@@ -14,9 +14,9 @@ import "./Dashboard.css";
  * Real-time monitoring dashboard
  */
 export default function Dashboard() {
-  const { status, stats, connected, error, testReport, testRunning } =
+  const { status, stats, connected, error, testReport, testRunning, resetTestState, clearError } =
     useRealtimeData();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, clearAllToasts } = useToast();
   const [testPlan, setTestPlan] = useState(null);
   const [currentTest, setCurrentTest] = useState(null);
   const [chartData, setChartData] = useState([]);
@@ -184,6 +184,59 @@ export default function Dashboard() {
     }
   };
 
+  const handleFullReset = async () => {
+    try {
+      // Call full reset API endpoint which stops orchestrator and resets nodes
+      console.log("Performing full reset (stopping orchestrator and resetting nodes + UI)...");
+      
+      const result = await apiClient.fullReset();
+
+      // Reset UI states regardless of firmware reset success
+      // Clear chart data
+      setChartData([]);
+      
+      // Clear generated report
+      setGeneratedReport(null);
+      
+      // Reset test report and state via hook
+      resetTestState();
+      
+      // Clear previous states ref
+      prevStatesRef.current = { nodeA: null, nodeB: null };
+      
+      // Clear all error messages and notifications
+      clearError();
+      clearAllToasts();
+
+      if (result.errors && result.errors.length > 0) {
+        console.warn("Full reset completed with some errors:", result.errors);
+        showError(`Full reset completed with errors:\n${result.errors.join("\n")}\n\nOrchestrator stopped and UI states reset.`);
+      } else {
+        console.log("✓ Full reset complete: Orchestrator stopped, firmware stats and UI states reset");
+        showSuccess("Full reset complete: Orchestrator stopped, firmware stats and UI states reset");
+      }
+    } catch (error) {
+      console.error("Failed to perform full reset:", error);
+      const errorMsg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        String(error);
+      
+      // Still reset UI states even if API call fails
+      setChartData([]);
+      setGeneratedReport(null);
+      resetTestState();
+      prevStatesRef.current = { nodeA: null, nodeB: null };
+      
+      // Clear existing errors/toasts before showing new error
+      clearError();
+      clearAllToasts();
+      
+      showError(`Failed to perform full reset: ${errorMsg}\n\nUI states have been reset.`);
+    }
+  };
+
   const handleCommandSent = (nodeId, command, result) => {
     console.log(`Node ${nodeId} command ${command} sent:`, result);
     // Optionally refresh stats after command
@@ -250,6 +303,14 @@ export default function Dashboard() {
             </button>
             <button className="btn btn-danger" onClick={handleStopTest}>
               Stop Test (Both Nodes)
+            </button>
+            <button
+              className="btn btn-warning"
+              onClick={handleFullReset}
+              style={{ marginTop: "0.5rem" }}
+              title="Stop orchestrator (stops polling and cancels pending commands), reset statistics on both nodes (sends RST command), and clear all UI states (charts, reports, errors, notifications, toasts)"
+            >
+              Full Reset (Stop Orchestrator + Nodes + UI)
             </button>
             <button
               className="btn btn-secondary"

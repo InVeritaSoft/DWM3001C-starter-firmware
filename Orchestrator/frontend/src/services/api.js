@@ -147,6 +147,14 @@ export const apiClient = {
     const response = await api.post("/test/report");
     return response.data;
   },
+
+  /**
+   * Full reset - stop orchestrator and reset both nodes
+   */
+  async fullReset() {
+    const response = await api.post("/test/full-reset");
+    return response.data;
+  },
 };
 
 export default apiClient;

@@ -282,8 +282,22 @@ export class TestRunner extends EventEmitter {
   async pollAndLog(test) {
     try {
       // Get stats from both nodes
+      // #region agent log
+      const fs = await import('fs');
+      const logPath = 'c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log';
+      const logEntry = JSON.stringify({location:'testRunner.js:285',message:'Polling stats - before getStats',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})+'\n';
+      fs.appendFileSync(logPath, logEntry);
+      // #endregion
       const statsA = await this.nodeA.getStats();
+      // #region agent log
+      const logEntryA = JSON.stringify({location:'testRunner.js:286',message:'Polling stats - Node A result',data:{total_sent:statsA?.total_sent,total_attempted:statsA?.total_attempted,last_error:statsA?.last_error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})+'\n';
+      fs.appendFileSync(logPath, logEntryA);
+      // #endregion
       const statsB = await this.nodeB.getStats();
+      // #region agent log
+      const logEntryB = JSON.stringify({location:'testRunner.js:287',message:'Polling stats - Node B result',data:{total_rx:statsB?.total_rx,lost_pkts:statsB?.lost_pkts},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})+'\n';
+      fs.appendFileSync(logPath, logEntryB);
+      // #endregion
 
       // Get current configuration
       const configA = this.nodeA.getConfig();
@@ -368,6 +382,18 @@ export class TestRunner extends EventEmitter {
   }
 
   /**
+   * Stop polling without stopping the test
+   */
+  stopPolling() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+      this.emit("pollingStopped");
+    }
+    this.isPolling = false; // Reset polling guard
+  }
+
+  /**
    * Stop test
    */
   async stopTest() {
@@ -379,10 +405,7 @@ export class TestRunner extends EventEmitter {
     this.emit("stopping");
 
     // Stop polling
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
-    }
+    this.stopPolling();
 
     try {
       // Stop both nodes simultaneously

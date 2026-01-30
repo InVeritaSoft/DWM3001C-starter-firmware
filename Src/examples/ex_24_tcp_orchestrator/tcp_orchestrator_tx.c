@@ -1099,9 +1099,10 @@ static void send_packet(void)
     
     uint32_t status_reg;
     uint32_t timeout_count = 0;
-    // Maximum wait time: 20ms (should be enough for TX, but prevents blocking timer)
-    // For 100Hz rate (10ms period), this allows 2x margin
-    const uint32_t max_timeout_ms = 20;
+    // CRITICAL FIX: Increased timeout to 50ms to ensure TX completion is detected
+    // TX frame duration is ~672us, but with retries and processing, 20ms was too short
+    // For 100Hz rate (10ms period), 50ms allows 5x margin while still being non-blocking
+    const uint32_t max_timeout_ms = 50;
 
     g_stats.total_attempted++;
 
@@ -1143,13 +1144,15 @@ static void send_packet(void)
     // Start transmission immediately (matches working ex_22_orchestrator_v2)
     dwt_starttx(DWT_START_TX_IMMEDIATE);
 
-    // Poll for TX complete with timeout to prevent blocking timer handler
-    // Use manual polling instead of waitforsysstatus to allow timeout
-    // Match working ex_22_orchestrator_v2 - only check for TXFRS (success), not errors
+    // CRITICAL FIX: Read status AFTER starting TX, not before
+    // Also add small delay to allow TX to start before polling
+    Sleep(1); // Small delay to allow TX to start
     status_reg = dwt_readsysstatuslo();
     
     // Poll with timeout, but check g_test_running frequently to allow STOP command to be processed
-    while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
+    // CRITICAL FIX: Check both TXFRS (success) and error bits to detect completion
+    uint32_t tx_complete_mask = DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
+    while (!(status_reg & tx_complete_mask) && timeout_count < max_timeout_ms)
     {
         // Check if test was stopped - exit early to allow STOP command processing
         if (!g_test_running)
@@ -1199,6 +1202,28 @@ static void send_packet(void)
         
         if (timeout_count >= max_timeout_ms)
         {
+            // CRITICAL FIX: Even on timeout, check if TX actually completed
+            // Sometimes the interrupt bit is set but polling timed out
+            // Read status one more time to catch late completion
+            status_reg = dwt_readsysstatuslo();
+            if (status_reg & DWT_INT_TXFRS_BIT_MASK)
+            {
+                // TX actually completed - treat as success
+                dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK);
+                g_stats.total_sent++;
+                g_stats.last_tx_timestamp = dwt_readsystimestamphi32();
+                g_stats.last_error = 0;
+                g_consecutive_errors = 0;
+                bsp_board_led_off(1);
+                bsp_board_led_off(2);
+                if (g_config.tcp_mode)
+                {
+                    add_to_retransmit_queue(g_tx_packet.seq, g_tx_buffer, data_len);
+                }
+                g_tx_in_progress = 0;
+                return;
+            }
+            
             g_stats.tx_timeouts++;
             g_stats.last_error = 2; // TX timeout error
         }

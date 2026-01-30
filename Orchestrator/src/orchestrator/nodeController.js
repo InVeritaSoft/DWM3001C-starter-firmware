@@ -353,9 +353,23 @@ export class NodeController extends EventEmitter {
 
       // Node B needs longer timeout
       const timeout = this.nodeId === "B" ? 8000 : 5000;
+      // #region agent log
+      const fs = await import('fs');
+      const logPath = 'c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log';
+      const logEntryBefore = JSON.stringify({location:'nodeController.js:356',message:'getStats - before send',data:{nodeId:this.nodeId,timeout},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})+'\n';
+      fs.appendFileSync(logPath, logEntryBefore);
+      // #endregion
       const response = await this.rs485Comm.getStats(timeout);
+      // #region agent log
+      const logEntryAfter = JSON.stringify({location:'nodeController.js:357',message:'getStats - response received',data:{nodeId:this.nodeId,response:response.substring(0,100),responseLength:response.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})+'\n';
+      fs.appendFileSync(logPath, logEntryAfter);
+      // #endregion
       if (response.startsWith("OK STATS")) {
         this.stats = this.parseStats(response);
+        // #region agent log
+        const logEntryParsed = JSON.stringify({location:'nodeController.js:359',message:'getStats - stats parsed',data:{nodeId:this.nodeId,parsedStats:this.stats},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})+'\n';
+        fs.appendFileSync(logPath, logEntryParsed);
+        // #endregion
         this.emit("statsUpdated", this.stats);
         return this.stats;
       } else {

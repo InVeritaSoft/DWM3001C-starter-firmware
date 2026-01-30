@@ -249,6 +249,22 @@ export class RS485Comm extends EventEmitter {
   }
 
   /**
+   * Cancel all pending commands
+   * Useful for reset operations to stop any in-flight commands
+   */
+  cancelAllPendingCommands() {
+    const pendingCount = this.pendingCommands.size;
+    if (pendingCount > 0) {
+      console.log(`[RS485] Cancelling ${pendingCount} pending command(s) on ${this.port}`);
+      // Reject all pending promises with a cancellation error
+      for (const [commandId, { reject }] of this.pendingCommands.entries()) {
+        reject(new Error(`Command cancelled due to reset`));
+      }
+      this.pendingCommands.clear();
+    }
+  }
+
+  /**
    * Close serial port connection
    */
   async close() {

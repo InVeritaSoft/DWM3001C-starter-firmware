@@ -48,8 +48,12 @@ export const ToastProvider = ({ children }) => {
     return showToast(message, 'warning', duration);
   }, [showToast]);
 
+  const clearAllToasts = useCallback(() => {
+    setToasts([]);
+  }, []);
+
   return (
-    <ToastContext.Provider value={{ showToast, showSuccess, showError, showInfo, showWarning, removeToast }}>
+    <ToastContext.Provider value={{ showToast, showSuccess, showError, showInfo, showWarning, removeToast, clearAllToasts }}>
       {children}
       <div className="toast-container">
         {toasts.map((toast) => (

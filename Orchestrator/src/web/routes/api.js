@@ -684,6 +684,70 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
 
   /**
    * @swagger
+   * /api/test/full-reset:
+   *   post:
+   *     summary: Full reset - stop orchestrator and reset both nodes
+   *     tags: [Test Control]
+   *     responses:
+   *       200:
+   *         description: Full reset completed
+   */
+  router.post("/test/full-reset", async (req, res) => {
+    try {
+      // Step 1: Stop test runner (stops polling and any running tests)
+      if (testRunner.isRunning) {
+        console.log("[Full Reset] Stopping test runner...");
+        await testRunner.stopTest();
+      } else {
+        // Even if not running, stop polling if it's active
+        testRunner.stopPolling();
+      }
+
+      // Step 2: Cancel all pending commands on both nodes
+      console.log("[Full Reset] Cancelling pending commands...");
+      nodeA.rs485Comm.cancelAllPendingCommands();
+      nodeB.rs485Comm.cancelAllPendingCommands();
+
+      // Step 3: Send RST command to both nodes simultaneously
+      console.log("[Full Reset] Resetting stats on both nodes...");
+      const [resultA, resultB] = await Promise.allSettled([
+        nodeA.rs485Comm.sendCommand("RST").catch((err) => {
+          console.warn(`[Full Reset] Node A RST failed: ${err.message}`);
+          throw err;
+        }),
+        nodeB.rs485Comm.sendCommand("RST").catch((err) => {
+          console.warn(`[Full Reset] Node B RST failed: ${err.message}`);
+          throw err;
+        }),
+      ]);
+
+      const errors = [];
+      if (resultA.status === "rejected") {
+        errors.push(`Node A: ${resultA.reason.message || resultA.reason}`);
+      }
+      if (resultB.status === "rejected") {
+        errors.push(`Node B: ${resultB.reason.message || resultB.reason}`);
+      }
+
+      if (errors.length > 0) {
+        res.status(207).json({
+          message: "Full reset completed with some errors",
+          errors: errors,
+          orchestratorStopped: true,
+        });
+      } else {
+        res.json({
+          message: "Full reset completed successfully",
+          orchestratorStopped: true,
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * @swagger
    * /api/test/report:
    *   post:
    *     summary: Generate test report after both nodes stop

@@ -36,6 +36,9 @@ export function useRealtimeData() {
       const nodeATotalSent = Number(nodeAStats.total_sent) || 0;
       const startNodeATotalSent = Number(startNodeA.total_sent) || 0;
       const packetsSent = Math.max(0, nodeATotalSent - startNodeATotalSent);
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:36',message:'Calculate report - Node A delta',data:{nodeATotalSent,startNodeATotalSent,packetsSent,nodeAStats_total_sent:nodeAStats.total_sent,startNodeA_total_sent:startNodeA.total_sent},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
       const nodeALastError = Number(nodeAStats.last_error) || 0;
       const startNodeALastError = Number(startNodeA.last_error) || 0;
@@ -83,6 +86,9 @@ export function useRealtimeData() {
         totalSent > 0
           ? ((totalReceived / totalSent) * 100).toFixed(2)
           : "0.00";
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:87',message:'Report calculated',data:{packetsSent:report.nodeA.packetsSent,packetsReceived:report.nodeB.packetsReceived,packetsLost:report.nodeB.packetsLost,packetLossRate:report.packetLossRate,successRate:report.successRate},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
 
       setTestReport(report);
     } catch (error) {
@@ -139,6 +145,9 @@ export function useRealtimeData() {
 
     // Stats updates
     const handleStats = (data) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:141',message:'Stats update received',data:{hasNode:!!data.node,nodeA_total_sent:data.nodeA?.total_sent,nodeB_total_rx:data.nodeB?.total_rx,nodeA_stats_total_sent:data.node?.stats?.total_sent,nodeB_stats_total_rx:data.node?.stats?.total_rx},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (data.node) {
         // Single node update
         setStats((prev) => ({
@@ -175,6 +184,9 @@ export function useRealtimeData() {
           nodeA: currentStats.nodeA ? { ...currentStats.nodeA } : null,
           nodeB: currentStats.nodeB ? { ...currentStats.nodeB } : null,
         };
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:173',message:'Test started - baseline captured',data:{nodeA_total_sent:testStartStatsRef.current.nodeA?.total_sent,nodeB_total_rx:testStartStatsRef.current.nodeB?.total_rx,currentStats_nodeA_total_sent:currentStats.nodeA?.total_sent,currentStats_nodeB_total_rx:currentStats.nodeB?.total_rx},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         // Initialize report immediately when test starts
         setTestReport({
           startTime: testStartTimeRef.current,
@@ -245,6 +257,19 @@ export function useRealtimeData() {
     };
   }, [calculateReport]);
 
+  // Reset function to clear test report and reset state
+  const resetTestState = useCallback(() => {
+    setTestReport(null);
+    setTestRunning(false);
+    testStartStatsRef.current = null;
+    testStartTimeRef.current = null;
+  }, []);
+
+  // Clear error function
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   return {
     status,
     stats,
@@ -252,5 +277,7 @@ export function useRealtimeData() {
     error,
     testReport,
     testRunning,
+    resetTestState,
+    clearError,
   };
 }
