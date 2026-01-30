@@ -1238,6 +1238,10 @@ static void send_packet(void)
 
     // Poll for TX complete with timeout (matches working ex_22_orchestrator_v2 pattern exactly)
     // Read status immediately after starting TX - TX can complete very quickly
+    // CRITICAL: Do NOT call process_pending_command() here. If we handle STAT we call send_response()
+    // which can block 20ms+ (long string at 115200). That blocks the timer context, starves the main
+    // loop, and prevents the watchdog from running — Node A stops responding. Commands are processed
+    // only in the main loop so send_packet() returns quickly and the main loop can run.
     status_reg = dwt_readsysstatuslo();
     while (!(status_reg & DWT_INT_TXFRS_BIT_MASK) && timeout_count < max_timeout_ms)
     {
@@ -1255,9 +1259,7 @@ static void send_packet(void)
             g_tx_in_progress_ticks = 0;
             return;
         }
-        /* Process UART commands while waiting for UWB TX so STAT/RST get responses even when main loop is starved by timer (log evidence: COM21 no line-received until much later) */
-        process_pending_command();
-        Sleep(1); // Sleep 1ms
+        Sleep(1); // Sleep 1ms only — no command processing here
         timeout_count++;
         status_reg = dwt_readsysstatuslo();
     }
