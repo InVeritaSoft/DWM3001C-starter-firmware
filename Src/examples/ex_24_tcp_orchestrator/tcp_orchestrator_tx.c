@@ -158,19 +158,9 @@ static uwb_tcp_packet_t g_tx_packet;
 static uint8_t g_timer_initialized = 0;
 static dwt_txconfig_t g_tx_config; // TX power configuration
 
-// #region agent log - Debug logging function
-static void debug_log(const char *location, const char *message, uint32_t data1, uint32_t data2)
-{
-    // Write to debug log file (simple NDJSON format)
-    FILE *f = fopen("c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log", "a");
-    if (f)
-    {
-        fprintf(f, "{\"location\":\"%s\",\"message\":\"%s\",\"data\":{\"val1\":%lu,\"val2\":%lu},\"timestamp\":%lu,\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"K\"}\n",
-                location, message, (unsigned long)data1, (unsigned long)data2, (unsigned long)dwt_readsystimestamphi32());
-        fclose(f);
-    }
-}
-// #endregion agent log
+// Safety mechanism: Track timer ticks since g_tx_in_progress was set to detect stuck state
+static volatile uint32_t g_tx_in_progress_ticks = 0;
+#define TX_IN_PROGRESS_MAX_TICKS 10  // If TX in progress for >10 timer ticks (~100ms at 100Hz), something is wrong
 static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for recovery
 
 /* Retransmission queue */
@@ -1005,28 +995,38 @@ static void configure_uwb(void)
  */
 static void tx_timer_handler(void *p_context)
 {
-    // #region agent log
-    debug_log("tx_timer_handler:entry", "Timer fired", g_test_running, g_tx_in_progress);
-    // #endregion agent log
-    
     // Always check if test is running - don't block timer if test stopped
     if (!g_test_running)
     {
-        // #region agent log
-        debug_log("tx_timer_handler:exit", "Test not running", 0, 0);
-        // #endregion agent log
         return;
     }
     
-    // Prevent overlapping TX calls - if previous TX is still in progress, skip this one
-    // This prevents blocking the timer handler if send_packet() takes longer than timer period
+    // SAFETY MECHANISM: If g_tx_in_progress has been set for too long, clear it
+    // This prevents the flag from getting stuck if send_packet() crashes or hangs
     if (g_tx_in_progress)
     {
-        // #region agent log
-        debug_log("tx_timer_handler:skip", "TX in progress, skipping", g_tx_in_progress, g_stats.total_attempted);
-        // #endregion agent log
-        // Previous TX still in progress - skip this timer tick to prevent blocking
-        return;
+        g_tx_in_progress_ticks++;
+        
+        if (g_tx_in_progress_ticks > TX_IN_PROGRESS_MAX_TICKS)
+        {
+            // TX has been in progress for too long - clear the flag to unblock transmission
+            // This is a safety mechanism to prevent permanent blocking
+            g_tx_in_progress = 0;
+            g_tx_in_progress_ticks = 0;
+            // Force DW3000 to IDLE state to recover
+            dwt_forcetrxoff();
+            dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
+        }
+        else
+        {
+            // Previous TX still in progress - skip this timer tick to prevent blocking
+            return;
+        }
+    }
+    else
+    {
+        // TX not in progress - reset counter
+        g_tx_in_progress_ticks = 0;
     }
     
     // CRITICAL FIX: Removed window size blocking for continuous transmission
@@ -1086,18 +1086,13 @@ static void send_packet(void)
     
     // CRITICAL: Set flag AFTER checking to prevent race conditions
     g_tx_in_progress = 1;
-    
-    // #region agent log
-    debug_log("send_packet:entry", "send_packet called", g_stats.total_attempted, g_stats.total_sent);
-    // #endregion agent log
+    g_tx_in_progress_ticks = 0; // Reset watchdog counter
     
     // Double-check test is still running after acquiring lock
     if (!g_test_running)
     {
-        // #region agent log
-        debug_log("send_packet:exit", "Test stopped early", 0, 0);
-        // #endregion agent log
         g_tx_in_progress = 0;
+        g_tx_in_progress_ticks = 0;
         return;
     }
     
@@ -1157,9 +1152,6 @@ static void send_packet(void)
         // Check if test was stopped - exit early to allow STOP command processing
         if (!g_test_running)
         {
-            // #region agent log
-            debug_log("send_packet:exit_early", "Test stopped in loop", timeout_count, g_stats.total_attempted);
-            // #endregion agent log
             // Force to IDLE and clear flag
             dwt_forcetrxoff();
             dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK | DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK);
@@ -1168,6 +1160,7 @@ static void send_packet(void)
             // GREEN LED: Turn off when test stops
             bsp_board_led_off(2);
             g_tx_in_progress = 0;
+            g_tx_in_progress_ticks = 0;
             return;
         }
         
@@ -1187,10 +1180,6 @@ static void send_packet(void)
         g_stats.last_error = 0;
         g_consecutive_errors = 0; // Reset consecutive error counter on success
         
-        // #region agent log
-        debug_log("send_packet:success", "TX success", g_stats.total_sent, timeout_count);
-        // #endregion agent log
-        
         // ORANGE LED: Turn off after successful transmission
         bsp_board_led_off(1);
         // GREEN LED: Turn off after successful UWB exchange
@@ -1207,9 +1196,6 @@ static void send_packet(void)
         // Timeout or error occurred (matches working ex_22_orchestrator_v2 exactly)
         if (timeout_count >= max_timeout_ms)
         {
-            // #region agent log
-            debug_log("send_packet:timeout", "TX timeout", timeout_count, max_timeout_ms);
-            // #endregion agent log
             g_stats.tx_timeouts++;
             g_stats.last_error = 2; // TX timeout error
         }
@@ -1223,10 +1209,6 @@ static void send_packet(void)
                 // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
                 g_stats.tx_errors++;
                 g_consecutive_errors++;
-                
-                // #region agent log
-                debug_log("send_packet:error", "TX error", status_reg, g_consecutive_errors);
-                // #endregion agent log
                 
                 if (status_reg & DWT_INT_TXFRB_BIT_MASK)
                 {
@@ -1280,10 +1262,8 @@ static void send_packet(void)
     
     // CRITICAL: Always clear TX in progress flag at end of function
     // This ensures timer can fire again even if there was an error
-    // #region agent log
-    debug_log("send_packet:exit", "Clearing tx_in_progress", g_stats.total_sent, g_stats.total_attempted);
-    // #endregion agent log
     g_tx_in_progress = 0;
+    g_tx_in_progress_ticks = 0;
 }
 
 /**
