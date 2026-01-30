@@ -154,9 +154,12 @@ export function useRealtimeData() {
           ...prev,
           [data.node === "A" ? "nodeA" : "nodeB"]: data.stats,
         }));
-      } else {
-        // Both nodes update
-        setStats(data);
+      } else if (data.nodeA !== undefined || data.nodeB !== undefined) {
+        // Both nodes update - merge with existing stats to preserve structure
+        setStats((prev) => ({
+          nodeA: data.nodeA !== undefined ? data.nodeA : prev?.nodeA,
+          nodeB: data.nodeB !== undefined ? data.nodeB : prev?.nodeB,
+        }));
       }
     };
 
@@ -180,12 +183,13 @@ export function useRealtimeData() {
       // Capture current stats as baseline - use functional update to get latest stats
       setStats((currentStats) => {
         testStartTimeRef.current = new Date();
+        // Ensure we capture baseline even if stats are null/undefined
         testStartStatsRef.current = {
-          nodeA: currentStats.nodeA ? { ...currentStats.nodeA } : null,
-          nodeB: currentStats.nodeB ? { ...currentStats.nodeB } : null,
+          nodeA: currentStats?.nodeA ? { ...currentStats.nodeA } : { total_sent: 0, last_error: 0 },
+          nodeB: currentStats?.nodeB ? { ...currentStats.nodeB } : { total_rx: 0, lost_pkts: 0, crc_err: 0 },
         };
         // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:173',message:'Test started - baseline captured',data:{nodeA_total_sent:testStartStatsRef.current.nodeA?.total_sent,nodeB_total_rx:testStartStatsRef.current.nodeB?.total_rx,currentStats_nodeA_total_sent:currentStats.nodeA?.total_sent,currentStats_nodeB_total_rx:currentStats.nodeB?.total_rx},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:173',message:'Test started - baseline captured',data:{nodeA_total_sent:testStartStatsRef.current.nodeA?.total_sent,nodeB_total_rx:testStartStatsRef.current.nodeB?.total_rx,currentStats_nodeA_total_sent:currentStats?.nodeA?.total_sent,currentStats_nodeB_total_rx:currentStats?.nodeB?.total_rx},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
         // #endregion
         // Initialize report immediately when test starts
         setTestReport({
@@ -208,7 +212,11 @@ export function useRealtimeData() {
           packetLossRate: "0.00",
           successRate: "0.00",
         });
-        return currentStats; // Return unchanged stats
+        // Ensure stats structure is initialized even if null
+        return {
+          nodeA: currentStats?.nodeA || { total_sent: 0, last_error: 0 },
+          nodeB: currentStats?.nodeB || { total_rx: 0, lost_pkts: 0, crc_err: 0 },
+        };
       });
     };
 
