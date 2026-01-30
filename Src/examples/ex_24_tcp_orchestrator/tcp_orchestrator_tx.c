@@ -886,11 +886,9 @@ static void parse_command(char *cmd)
         if (period_ms < 1) period_ms = 1;
         if (period_ms > 1000) period_ms = 1000; // Cap at 1 second max
         
-        // CRITICAL FIX: Stop timer first if already running to ensure clean restart
-        // This prevents timer from getting stuck or not firing continuously
-        app_timer_stop(m_tx_timer_id);
-        Sleep(10); // Small delay to ensure timer stops
-        
+        // CRITICAL FIX: Don't stop timer before starting - just start it directly
+        // Stopping and restarting REPEATED mode timers can break continuous firing
+        // If timer is already running, app_timer_start will handle it correctly
         uint32_t err_code = app_timer_start(m_tx_timer_id, APP_TIMER_TICKS(period_ms), NULL);
 
         if (err_code == NRF_SUCCESS)

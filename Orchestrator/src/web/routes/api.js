@@ -397,9 +397,10 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *         description: Node started
    */
   router.post("/nodes/:nodeId/start", async (req, res) => {
+    const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+    const nodeId = node.nodeId;
+    
     try {
-      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
-      const nodeId = node.nodeId;
 
       // Ensure node is connected before attempting any operations
       if (!node.isConnected()) {
@@ -533,9 +534,9 @@ export function createApiRoutes(nodeA, nodeB, testRunner, csvLogger, config) {
    *         description: Node stopped
    */
   router.post("/nodes/:nodeId/stop", async (req, res) => {
+    const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
+    
     try {
-      const node = req.params.nodeId.toUpperCase() === "A" ? nodeA : nodeB;
-
       // Check if node is connected
       if (!node.isConnected()) {
         return res.status(400).json({
