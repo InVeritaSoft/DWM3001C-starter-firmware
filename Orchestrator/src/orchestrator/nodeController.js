@@ -351,8 +351,8 @@ export class NodeController extends EventEmitter {
         }
       }
 
-      // Node B needs longer timeout
-      const timeout = this.nodeId === "B" ? 8000 : 5000;
+      // Node A needs longer timeout when test is running (send_packet can block); Node B also needs margin
+      const timeout = this.nodeId === "A" ? 10000 : 8000;
       // #region agent log
       const fs = await import('fs');
       const logPath = 'c:\\Users\\lolibai\\Documents\\INVERITA\\DWM3001C-starter-firmware\\.cursor\\debug.log';

@@ -191,6 +191,7 @@ APP_TIMER_DEF(m_ack_timeout_timer_id);
 
 /* Forward declarations */
 static void uart_event_handler(app_uart_evt_t *p_event);
+static void process_pending_command(void);
 static uint32_t uart_init(void);
 static void parse_command(char *cmd);
 static void send_response(const char *response);
@@ -400,8 +401,13 @@ static void process_ack_packet(uwb_tcp_packet_t *ack_packet)
     }
 }
 
+// Deferred command processing: queue complete lines in UART handler, process in main loop
+// so send_response() (long STATS string) does not block in interrupt and cause STAT timeout
+static volatile uint8_t g_pending_cmd_ready = 0;
+static char g_pending_cmd_buffer[UART_BUFFER_SIZE];
+
 /**
- * UART event handler
+ * UART event handler - only queues complete commands; main loop calls process_pending_command()
  */
 static void uart_event_handler(app_uart_evt_t *p_event)
 {
@@ -417,36 +423,26 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
-                // CRITICAL: Minimize blocking delays in interrupt handler to allow commands to be processed quickly
-                // Even if send_packet() is running, UART interrupts should be processed immediately
-                // Use very short delays or non-blocking LED toggles
-                bsp_board_led_on(2);  // Green LED (GPIO 22) - shows interrupt is firing
-                // Removed nrf_delay_ms(10) - blocking delay in interrupt handler can delay command processing
-                // LED will be turned off after command parsing
+                bsp_board_led_on(2);  // Green LED - byte received
                 
                 if (byte == '\r' || byte == '\n')
                 {
                     if (rx_index > 0)
                     {
                         rx_buffer[rx_index] = '\0';
-                        
-                        // ORANGE LED: RX - Complete command received
-                        bsp_board_led_on(1);
-                        // Minimal delay in interrupt: long blocks can starve timer and cause TX freeze
-                        nrf_delay_ms(2);
+                        bsp_board_led_on(1);  // Orange - complete command
+                        // Queue for main loop; do NOT call parse_command() here (send_response blocks)
+                        if (!g_pending_cmd_ready)
+                        {
+                            size_t len = (size_t)rx_index;
+                            if (len >= sizeof(g_pending_cmd_buffer)) len = sizeof(g_pending_cmd_buffer) - 1;
+                            memcpy(g_pending_cmd_buffer, rx_buffer, len + 1);
+                            g_pending_cmd_ready = 1;
+                        }
                         bsp_board_led_off(1);
-                        
-                        // Turn off green LED after command is parsed
-                        bsp_board_led_off(2);
-                        
-                        parse_command((char *)rx_buffer);
-                        rx_index = 0;
                     }
-                    else
-                    {
-                        // Empty command (just \r\n) - turn off LED
-                        bsp_board_led_off(2);
-                    }
+                    bsp_board_led_off(2);
+                    rx_index = 0;
                 }
                 else if (rx_index < (UART_BUFFER_SIZE - 1))
                 {
@@ -476,6 +472,17 @@ static void uart_event_handler(app_uart_evt_t *p_event)
         default:
             break;
     }
+}
+
+/**
+ * Process one queued UART command from main loop (so send_response does not block in interrupt)
+ */
+static void process_pending_command(void)
+{
+    if (!g_pending_cmd_ready)
+        return;
+    g_pending_cmd_ready = 0;
+    parse_command(g_pending_cmd_buffer);
 }
 
 /**
@@ -1542,6 +1549,9 @@ int tcp_orchestrator_tx(void)
     
     while (1)
     {
+        // Process queued UART commands in main loop so STAT/STATS response does not block in interrupt
+        process_pending_command();
+        
         // Process UWB RX (for ACK packets) - only if DW3000 is ready
         if (dw3000_ready)
         {
