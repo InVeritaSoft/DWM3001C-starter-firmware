@@ -160,8 +160,8 @@ static dwt_txconfig_t g_tx_config; // TX power configuration
 
 // Safety mechanism: Track timer ticks since g_tx_in_progress was set to detect stuck state
 static volatile uint32_t g_tx_in_progress_ticks = 0;
-#define TX_IN_PROGRESS_MAX_TICKS 5  // If TX in progress for >5 timer ticks (~50ms at 100Hz), something is wrong
-// Reduced from 10 to 5 for faster recovery from stuck states
+#define TX_IN_PROGRESS_MAX_TICKS 3  // If TX in progress for >3 timer ticks (~30ms at 100Hz), something is wrong
+// Reduced to 3 for very fast recovery from stuck states - ensures transmission resumes within 30ms
 static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for recovery
 
 /* Retransmission queue */
