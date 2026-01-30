@@ -149,16 +149,17 @@ export function useRealtimeData() {
       fetch('http://127.0.0.1:7246/ingest/53b9dbf8-c6bb-42df-aadd-00e84572bd7f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useRealtimeData.js:141',message:'Stats update received',data:{hasNode:!!data.node,nodeA_total_sent:data.nodeA?.total_sent,nodeB_total_rx:data.nodeB?.total_rx,nodeA_stats_total_sent:data.node?.stats?.total_sent,nodeB_stats_total_rx:data.node?.stats?.total_rx},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
       // #endregion
       if (data.node) {
-        // Single node update
+        // Single node update from nodeController
         setStats((prev) => ({
-          ...prev,
+          nodeA: prev?.nodeA || { total_sent: 0, last_error: 0 },
+          nodeB: prev?.nodeB || { total_rx: 0, lost_pkts: 0, crc_err: 0 },
           [data.node === "A" ? "nodeA" : "nodeB"]: data.stats,
         }));
       } else if (data.nodeA !== undefined || data.nodeB !== undefined) {
-        // Both nodes update - merge with existing stats to preserve structure
+        // Both nodes update from testRunner - merge with existing stats
         setStats((prev) => ({
-          nodeA: data.nodeA !== undefined ? data.nodeA : prev?.nodeA,
-          nodeB: data.nodeB !== undefined ? data.nodeB : prev?.nodeB,
+          nodeA: data.nodeA !== null && data.nodeA !== undefined ? data.nodeA : (prev?.nodeA || { total_sent: 0, last_error: 0 }),
+          nodeB: data.nodeB !== null && data.nodeB !== undefined ? data.nodeB : (prev?.nodeB || { total_rx: 0, lost_pkts: 0, crc_err: 0 }),
         }));
       }
     };

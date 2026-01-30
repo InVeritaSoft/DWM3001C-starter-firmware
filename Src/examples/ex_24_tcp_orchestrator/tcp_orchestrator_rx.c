@@ -117,7 +117,7 @@ static uwb_config_t g_config = {
     .pkt_rate_hz = 100,
     .payload_len = 64,
     .configured = 0,
-    .tcp_mode = 1,            // TCP mode enabled by default
+    .tcp_mode = 0,            // TCP mode disabled by default - simpler continuous reception without ACK logic
     .window_size = 10
 };
 
