@@ -1142,11 +1142,8 @@ static void send_packet(void)
         status_reg = dwt_readsysstatuslo();
     }
 
-    // CRITICAL FIX: Always re-read status register after loop exits
-    // The status may have changed between the last loop check and now
-    status_reg = dwt_readsysstatuslo();
-    
-    // Check for TX success (matches working ex_22_orchestrator_v2)
+    // Check for TX success (matches working ex_22_orchestrator_v2 exactly)
+    // Use status_reg from last loop iteration - don't re-read to avoid race conditions
     if (status_reg & DWT_INT_TXFRS_BIT_MASK)
     {
         // Clear TX frame sent event
@@ -1167,76 +1164,58 @@ static void send_packet(void)
             add_to_retransmit_queue(g_tx_packet.seq, g_tx_buffer, data_len);
         }
     }
-    else if (timeout_count >= max_timeout_ms)
-    {
-        // CRITICAL FIX: Even on timeout, check if TX actually completed
-        // Sometimes the interrupt bit is set but polling timed out
-        // Read status one more time to catch late completion
-        status_reg = dwt_readsysstatuslo();
-        if (status_reg & DWT_INT_TXFRS_BIT_MASK)
-        {
-            // TX actually completed - treat as success
-            dwt_writesysstatuslo(DWT_INT_TXFRS_BIT_MASK);
-            g_stats.total_sent++;
-            g_stats.last_tx_timestamp = dwt_readsystimestamphi32();
-            g_stats.last_error = 0;
-            g_consecutive_errors = 0;
-            bsp_board_led_off(1);
-            bsp_board_led_off(2);
-            if (g_config.tcp_mode)
-            {
-                add_to_retransmit_queue(g_tx_packet.seq, g_tx_buffer, data_len);
-            }
-            g_tx_in_progress = 0;
-            return;
-        }
-        
-        g_stats.tx_timeouts++;
-        g_stats.last_error = 2; // TX timeout error
-    }
     else
     {
-        // Error occurred (not timeout) - check status register for specific error types
-        uint32_t tx_error_mask = DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
-        
-        if (status_reg & tx_error_mask)
+        // Timeout or error occurred (matches working ex_22_orchestrator_v2 exactly)
+        if (timeout_count >= max_timeout_ms)
         {
-            // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
-            g_stats.tx_errors++;
-            g_consecutive_errors++;
-            
-            if (status_reg & DWT_INT_TXFRB_BIT_MASK)
-            {
-                g_stats.last_error = 3; // TX frame rejected
-            }
-            else if (status_reg & DWT_INT_TXPRS_BIT_MASK)
-            {
-                g_stats.last_error = 4; // TX preamble rejected
-            }
-            else
-            {
-                g_stats.last_error = 1; // General TX error
-            }
-            
-            // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
-            if (g_consecutive_errors >= 10)
-            {
-                // Force to IDLE first
-                dwt_forcetrxoff();
-                Sleep(10); // Longer delay for recovery
-                
-                // Reconfigure DW3000 to reset its state
-                dwt_configure(&dwt_config);
-                configure_tx_power();
-                
-                // Reset consecutive error counter
-                g_consecutive_errors = 0;
-            }
+            g_stats.tx_timeouts++;
+            g_stats.last_error = 2; // TX timeout error
         }
         else
         {
-            g_stats.tx_errors++;
-            g_stats.last_error = 1; // General TX error
+            // Check status register for specific error types
+            uint32_t tx_error_mask = DWT_INT_TXFRB_BIT_MASK | DWT_INT_TXPRS_BIT_MASK;
+            
+            if (status_reg & tx_error_mask)
+            {
+                // TX error occurred (TXFRB = TX frame rejected, TXPRS = TX preamble rejected)
+                g_stats.tx_errors++;
+                g_consecutive_errors++;
+                
+                if (status_reg & DWT_INT_TXFRB_BIT_MASK)
+                {
+                    g_stats.last_error = 3; // TX frame rejected
+                }
+                else if (status_reg & DWT_INT_TXPRS_BIT_MASK)
+                {
+                    g_stats.last_error = 4; // TX preamble rejected
+                }
+                else
+                {
+                    g_stats.last_error = 1; // General TX error
+                }
+                
+                // AGGRESSIVE RECOVERY: If we have many consecutive errors, reconfigure DW3000
+                if (g_consecutive_errors >= 10)
+                {
+                    // Force to IDLE first
+                    dwt_forcetrxoff();
+                    Sleep(10); // Longer delay for recovery
+                    
+                    // Reconfigure DW3000 to reset its state
+                    dwt_configure(&dwt_config);
+                    configure_tx_power();
+                    
+                    // Reset consecutive error counter
+                    g_consecutive_errors = 0;
+                }
+            }
+            else
+            {
+                g_stats.tx_errors++;
+                g_stats.last_error = 1; // General TX error
+            }
         }
         
         // Clear any pending status bits and force to IDLE (matches ex_22_orchestrator_v2)
