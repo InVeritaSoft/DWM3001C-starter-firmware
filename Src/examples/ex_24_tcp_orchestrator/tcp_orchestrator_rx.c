@@ -146,8 +146,21 @@ static dwt_deviceentcnts_t g_event_cnts = {0};
 /* Timer for ping-pong messages to Arduino (every 5 seconds) */
 APP_TIMER_DEF(m_ping_timer_id);
 
+/* STOP guard: ignore STOP in first N loop iters after START; double-STOP to confirm (filters spurious STOP) */
+static volatile uint32_t g_loop_count = 0;
+static uint32_t g_start_loop = 0;
+static uint32_t g_last_stop_loop = 0;
+static uint8_t g_stop_seen_recent = 0;
+#define STOP_GUARD_TICKS 50   /* ~50ms when test running (Sleep(1)) */
+#define STOP_CONFIRM_TICKS 500 /* ~500ms; second STOP must arrive within this to confirm */
+
+/* Deferred command processing: queue complete lines in UART handler, process in main loop */
+static volatile uint8_t g_pending_cmd_ready = 0;
+static char g_pending_cmd_buffer[UART_BUFFER_SIZE];
+
 /* Forward declarations */
 static void uart_event_handler(app_uart_evt_t *p_event);
+static void process_pending_command(void);
 static uint32_t uart_init(void);
 static void parse_command(char *cmd);
 static void send_response(const char *response);
@@ -249,7 +262,7 @@ static void send_ack_packet(uint32_t ack_seq)
 }
 
 /**
- * UART event handler
+ * UART event handler - only queues complete commands; main loop calls process_pending_command()
  */
 static void uart_event_handler(app_uart_evt_t *p_event)
 {
@@ -265,27 +278,26 @@ static void uart_event_handler(app_uart_evt_t *p_event)
             err_code = app_uart_get(&byte);
             if (err_code == NRF_SUCCESS)
             {
-                // DEBUG: Blink GREEN LED (LED_2, GPIO 22) on every byte received to confirm interrupt is working
-                // NOTE: Blue LED (LED_3, GPIO 14) conflicts with UART RX pin, so using Green LED instead
-                // This helps diagnose if interrupt handler is being called
-                bsp_board_led_on(2);  // Green LED (GPIO 22) - shows interrupt is firing
-                nrf_delay_ms(10);      // Short blink
-                bsp_board_led_off(2);
+                bsp_board_led_on(2);  // Green LED - byte received
                 
                 if (byte == '\r' || byte == '\n')
                 {
                     if (rx_index > 0)
                     {
                         rx_buffer[rx_index] = '\0';
-                        
-                        // ORANGE LED: RX - Complete command received
-                        bsp_board_led_on(1);
-                        nrf_delay_ms(100);  // Longer blink for complete command
+                        bsp_board_led_on(1);  // Orange - complete command
+                        /* Queue for main loop; do NOT call parse_command() here (send_response blocks) */
+                        if (!g_pending_cmd_ready)
+                        {
+                            size_t len = (size_t)rx_index;
+                            if (len >= sizeof(g_pending_cmd_buffer)) len = sizeof(g_pending_cmd_buffer) - 1;
+                            memcpy(g_pending_cmd_buffer, rx_buffer, len + 1);
+                            g_pending_cmd_ready = 1;
+                        }
                         bsp_board_led_off(1);
-                        
-                        parse_command((char *)rx_buffer);
-                        rx_index = 0;
                     }
+                    bsp_board_led_off(2);
+                    rx_index = 0;
                 }
                 else if (rx_index < (UART_BUFFER_SIZE - 1))
                 {
@@ -313,6 +325,17 @@ static void uart_event_handler(app_uart_evt_t *p_event)
         default:
             break;
     }
+}
+
+/**
+ * Process one queued UART command from main loop (so send_response does not block in interrupt)
+ */
+static void process_pending_command(void)
+{
+    if (!g_pending_cmd_ready)
+        return;
+    g_pending_cmd_ready = 0;
+    parse_command(g_pending_cmd_buffer);
 }
 
 /**
@@ -660,6 +683,8 @@ static void parse_command(char *cmd)
         }
         
         g_test_running = 1;
+        g_start_loop = g_loop_count;
+        g_stop_seen_recent = 0;
         // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
         // Only reset if explicitly requested via RESET_STATS command
         
@@ -672,11 +697,29 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
-        // Send response IMMEDIATELY to prevent timeout (before any cleanup that might take time)
-        send_response("OK STOP");
-        
-        g_test_running = 0;
-        dwt_forcetrxoff();
+        /* Guard 1: ignore STOP within STOP_GUARD_TICKS of START (RS485 noise at startup) */
+        uint32_t elapsed = (g_loop_count >= g_start_loop) ? (g_loop_count - g_start_loop) : 0;
+        if (elapsed < STOP_GUARD_TICKS)
+        {
+            return;
+        }
+        /* Guard 2: require two STOPs within STOP_CONFIRM_TICKS to actually stop (filters spurious STOP mid-test) */
+        uint32_t ticks_since_last_stop = (g_loop_count >= g_last_stop_loop) ? (g_loop_count - g_last_stop_loop) : STOP_CONFIRM_TICKS + 1;
+        if (g_stop_seen_recent && ticks_since_last_stop <= STOP_CONFIRM_TICKS)
+        {
+            /* Second STOP within window - confirmed, actually stop */
+            g_stop_seen_recent = 0;
+            g_test_running = 0;
+            dwt_forcetrxoff();
+            send_response("OK STOP");
+        }
+        else
+        {
+            /* First STOP or window expired - record and acknowledge but do not stop */
+            g_last_stop_loop = g_loop_count;
+            g_stop_seen_recent = 1;
+            send_response("OK");  /* So orchestrator does not timeout; it will send second STOP */
+        }
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
@@ -1053,6 +1096,10 @@ int tcp_orchestrator_rx(void)
     
     while (1)
     {
+        g_loop_count++;
+        /* Process queued UART commands so STAT/STATS response does not block in interrupt */
+        process_pending_command();
+        
         if (g_test_running)
         {
             process_rx_packet();

@@ -789,14 +789,16 @@ export class RS485Comm extends EventEmitter {
   }
 
   /**
-   * Send STOP_TEST command
-   * Use short code "STOP" for better reliability (firmware supports both)
+   * Send STOP_TEST command (twice for double-STOP confirm; firmware ignores single spurious STOP)
    * @returns {Promise<string>}
    */
   async stopTest(timeout = null) {
-    // Firmware supports both "STOP" (short) and "STOP_TEST" (full)
-    // Use short code for better reliability
-    return this.sendCommand("STOP", timeout || this.timeout);
+    const t = timeout || this.timeout;
+    // First STOP: firmware responds "OK" and does not stop (guards against spurious STOP)
+    await this.sendCommand("STOP", Math.min(2000, t)).catch(() => {});
+    await new Promise((r) => setTimeout(r, 150));
+    // Second STOP within ~500ms: firmware stops and responds "OK STOP"
+    return this.sendCommand("STOP", t);
   }
 
   /**

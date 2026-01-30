@@ -175,6 +175,10 @@ static uint32_t g_consecutive_errors = 0; // Track consecutive TX errors for rec
 static volatile uint32_t g_timer_tick_count = 0; // Incremented by timer when test is running
 static uint32_t g_start_tick = 0;               // Tick count when START was received
 #define STOP_GUARD_TICKS 5  // At 100Hz ~50ms; ignore STOP in first 50ms after START
+// Double-STOP: require two STOPs within this many ticks to actually stop (filters spurious STOP mid-test)
+static uint32_t g_last_stop_tick = 0;           // Tick when we last saw a STOP (first of pair)
+static uint8_t g_stop_seen_recent = 0;          // 1 if we saw STOP recently (within STOP_CONFIRM_TICKS)
+#define STOP_CONFIRM_TICKS 50  // ~500ms at 100Hz; second STOP must arrive within this to confirm
 
 /* Retransmission queue */
 static retransmit_entry_t g_retransmit_queue[RETRANSMIT_QUEUE_SIZE];
@@ -890,6 +894,7 @@ static void parse_command(char *cmd)
         
         g_test_running = 1;
         g_start_tick = g_timer_tick_count; // For STOP guard: ignore STOP in first STOP_GUARD_TICKS
+        g_stop_seen_recent = 0;           // Clear double-STOP state on new run
         g_seq_num = 0;
         g_consecutive_errors = 0; // Reset consecutive error counter on START
         // Don't reset stats on START - let them accumulate (matches orchestrator_v2 behavior)
@@ -931,22 +936,33 @@ static void parse_command(char *cmd)
     }
     else if (strcmp(cmd_upper, "STOP") == 0 || strcmp(cmd_upper, "STOP_TEST") == 0)
     {
-        // STOP guard: ignore spurious STOP within STOP_GUARD_TICKS of START (RS485 noise/echo)
-        // Log evidence: TX stats freeze when g_test_running=0; only STOP clears it.
+        // Guard 1: ignore STOP within STOP_GUARD_TICKS of START (RS485 noise at startup)
         uint32_t elapsed = (g_timer_tick_count >= g_start_tick)
             ? (g_timer_tick_count - g_start_tick) : 0;
         if (elapsed < STOP_GUARD_TICKS)
         {
-            // No response - avoid corrupting next command (STATS) on the wire
             return;
         }
-        // Match working ex_22_orchestrator_v2 pattern: simple and fast
-        g_test_running = 0;
-        app_timer_stop(m_tx_timer_id);
-        app_timer_stop(m_ack_timeout_timer_id);
-        // Force DW3000 to IDLE state to stop transmission
-        dwt_forcetrxoff();
-        send_response("OK STOP");
+        // Guard 2: require two STOPs within STOP_CONFIRM_TICKS to actually stop (filters spurious STOP mid-test)
+        uint32_t ticks_since_last_stop = (g_timer_tick_count >= g_last_stop_tick)
+            ? (g_timer_tick_count - g_last_stop_tick) : STOP_CONFIRM_TICKS + 1;
+        if (g_stop_seen_recent && ticks_since_last_stop <= STOP_CONFIRM_TICKS)
+        {
+            // Second STOP within window - confirmed, actually stop
+            g_stop_seen_recent = 0;
+            g_test_running = 0;
+            app_timer_stop(m_tx_timer_id);
+            app_timer_stop(m_ack_timeout_timer_id);
+            dwt_forcetrxoff();
+            send_response("OK STOP");
+        }
+        else
+        {
+            // First STOP or window expired - record and acknowledge but do not stop
+            g_last_stop_tick = g_timer_tick_count;
+            g_stop_seen_recent = 1;
+            send_response("OK");  // So orchestrator does not timeout; it will send second STOP
+        }
     }
     else if (strcmp(cmd_upper, "STAT") == 0 || strcmp(cmd_upper, "GET_STATS") == 0 || strcmp(cmd_upper, "STATS") == 0)
     {
